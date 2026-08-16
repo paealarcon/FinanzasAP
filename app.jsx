@@ -607,11 +607,77 @@ function DonutChart({ data, size = 200 }) {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* Bloque de un mes: ingresos (tocable) / gastos / saldo               */
+/* ------------------------------------------------------------------ */
+
+function MonthSummary({ mk, ingreso, gasto, onSaveIncome }) {
+  const [editing, setEditing] = useState(false);
+  const [amount, setAmount] = useState(String(ingreso || 0));
+  const saldo = ingreso - gasto;
+
+  function start() {
+    setAmount(ingreso ? String(ingreso) : "0");
+    setEditing(true);
+  }
+  function save() {
+    const n = parseFloat(amount);
+    if (!n || n <= 0) return;
+    onSaveIncome(mk, n);
+    setEditing(false);
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <h3 className="text-sm font-bold text-slate-700 capitalize">{monthLabel(mk)}</h3>
+      {!editing ? (
+        <div className="grid grid-cols-3 gap-2">
+          <button
+            onClick={start}
+            className="bg-emerald-50 rounded-2xl p-3 text-center active:bg-emerald-100"
+          >
+            <div className="text-xs text-emerald-700 font-medium">Ingresos</div>
+            <div className="text-sm font-bold text-emerald-800">{fmt(ingreso)}</div>
+          </button>
+          <div className="bg-rose-50 rounded-2xl p-3 text-center">
+            <div className="text-xs text-rose-700 font-medium">Gastos</div>
+            <div className="text-sm font-bold text-rose-800">{fmt(gasto)}</div>
+          </div>
+          <div className={`rounded-2xl p-3 text-center ${saldo >= 0 ? "bg-sky-50" : "bg-orange-50"}`}>
+            <div className={`text-xs font-medium ${saldo >= 0 ? "text-sky-700" : "text-orange-700"}`}>Saldo</div>
+            <div className={`text-sm font-bold ${saldo >= 0 ? "text-sky-800" : "text-orange-800"}`}>{fmt(saldo)}</div>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col items-center gap-3 bg-slate-50 rounded-2xl p-4">
+          <div className="text-2xl font-bold tabular-nums text-emerald-700">
+            {CURRENCY} {amount}
+          </div>
+          <Keypad value={amount} onChange={setAmount} />
+          <div className="grid grid-cols-2 gap-2 w-full max-w-xs">
+            <button
+              onClick={() => setEditing(false)}
+              className="rounded-xl py-2.5 text-sm font-semibold text-slate-500 bg-slate-200"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={save}
+              disabled={!parseFloat(amount)}
+              className="rounded-xl py-2.5 text-sm font-semibold text-white bg-emerald-500 disabled:opacity-40"
+            >
+              Guardar
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BalanceTab({ data, setIncome, setCierreDay }) {
   const now = new Date();
   const currentMK = monthKey(now);
-  const [editingIncome, setEditingIncome] = useState(false);
-  const [incomeAmount, setIncomeAmount] = useState("0");
   const [editingCierre, setEditingCierre] = useState(false);
   const [cierreInput, setCierreInput] = useState(String(data.config.cierreDay));
 
@@ -619,7 +685,6 @@ function BalanceTab({ data, setIncome, setCierreDay }) {
   const gasto = monthTx.reduce((s, t) => s + t.amount, 0);
   const incomeRec = data.income[currentMK];
   const ingreso = incomeRec?.amount || 0;
-  const saldo = ingreso - gasto;
 
   // "Sale de la cuenta este mes": no-crédito del mes actual + crédito cuyo
   // chargeMonth cae en este mes (aunque la compra sea de un mes anterior).
@@ -630,16 +695,17 @@ function BalanceTab({ data, setIncome, setCierreDay }) {
   const saleDeLaCuenta = chargeTx.reduce((s, t) => s + t.amount, 0);
   const saldoReal = ingreso - saleDeLaCuenta;
 
-  // Próximos meses: lo ya comprometido a futuro por compras con tarjeta
-  // (el desfasaje máximo es de 2 meses, así que alcanza con mirar 2 hacia adelante).
+  // Próximos meses: mismo bloque visual que el mes actual, con "Gastos" = lo ya
+  // comprometido por compras con tarjeta que van a cobrarse ese mes.
   const upcomingMonths = [1, 2].map((offset) => {
     const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
     const mk = monthKey(d);
-    const total = data.transactions
+    const gastoComprometido = data.transactions
       .filter((t) => t.chargeMonth === mk)
       .reduce((s, t) => s + t.amount, 0);
-    return { mk, total };
-  }).filter((m) => m.total > 0);
+    const ingresoMes = data.income[mk]?.amount || 0;
+    return { mk, gastoComprometido, ingresoMes };
+  });
 
   const needsReminder = now.getDate() >= 25 && (!incomeRec ||
     new Date(incomeRec.updatedAt).getMonth() !== now.getMonth() ||
@@ -652,18 +718,6 @@ function BalanceTab({ data, setIncome, setCierreDay }) {
   });
   const pieData = Object.values(byCat);
 
-  function startEditIncome() {
-    setIncomeAmount(ingreso ? String(ingreso) : "0");
-    setEditingIncome(true);
-  }
-
-  function saveIncome() {
-    const n = parseFloat(incomeAmount);
-    if (!n || n <= 0) return;
-    setIncome(currentMK, n);
-    setEditingIncome(false);
-  }
-
   function saveCierre() {
     const d = parseInt(cierreInput, 10);
     if (!d || d < 1 || d > 31) return;
@@ -673,59 +727,13 @@ function BalanceTab({ data, setIncome, setCierreDay }) {
 
   return (
     <div className="p-4 flex flex-col gap-4 overflow-y-auto">
-      <h2 className="text-lg font-bold text-slate-800 capitalize">{monthLabel(currentMK)}</h2>
-
-      {needsReminder && !editingIncome && (
+      {needsReminder && (
         <div className="bg-amber-100 border border-amber-300 text-amber-900 rounded-2xl p-3 text-sm flex items-center justify-between gap-2">
           <span>📅 Es 25 o más tarde — actualizá el ingreso del mes.</span>
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-2">
-        <div className="bg-emerald-50 rounded-2xl p-3 text-center">
-          <div className="text-xs text-emerald-700 font-medium">Ingresos</div>
-          <div className="text-sm font-bold text-emerald-800">{fmt(ingreso)}</div>
-        </div>
-        <div className="bg-rose-50 rounded-2xl p-3 text-center">
-          <div className="text-xs text-rose-700 font-medium">Gastos</div>
-          <div className="text-sm font-bold text-rose-800">{fmt(gasto)}</div>
-        </div>
-        <div className={`rounded-2xl p-3 text-center ${saldo >= 0 ? "bg-sky-50" : "bg-orange-50"}`}>
-          <div className={`text-xs font-medium ${saldo >= 0 ? "text-sky-700" : "text-orange-700"}`}>Saldo</div>
-          <div className={`text-sm font-bold ${saldo >= 0 ? "text-sky-800" : "text-orange-800"}`}>{fmt(saldo)}</div>
-        </div>
-      </div>
-
-      {!editingIncome ? (
-        <button
-          onClick={startEditIncome}
-          className="bg-slate-800 text-white rounded-xl px-4 py-2.5 text-sm font-semibold"
-        >
-          ✏️ Actualizar ingreso de {monthLabel(currentMK)}
-        </button>
-      ) : (
-        <div className="flex flex-col items-center gap-3 bg-slate-50 rounded-2xl p-4">
-          <div className="text-2xl font-bold tabular-nums text-emerald-700">
-            {CURRENCY} {incomeAmount}
-          </div>
-          <Keypad value={incomeAmount} onChange={setIncomeAmount} />
-          <div className="grid grid-cols-2 gap-2 w-full max-w-xs">
-            <button
-              onClick={() => setEditingIncome(false)}
-              className="rounded-xl py-2.5 text-sm font-semibold text-slate-500 bg-slate-200"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={saveIncome}
-              disabled={!parseFloat(incomeAmount)}
-              className="rounded-xl py-2.5 text-sm font-semibold text-white bg-emerald-500 disabled:opacity-40"
-            >
-              Guardar
-            </button>
-          </div>
-        </div>
-      )}
+      <MonthSummary mk={currentMK} ingreso={ingreso} gasto={gasto} onSaveIncome={setIncome} />
 
       <div className="bg-indigo-50 rounded-2xl p-4">
         <div className="flex items-center justify-between">
@@ -740,20 +748,6 @@ function BalanceTab({ data, setIncome, setCierreDay }) {
           <span className={`text-sm font-bold ${saldoReal >= 0 ? "text-indigo-800" : "text-rose-600"}`}>{fmt(saldoReal)}</span>
         </div>
       </div>
-
-      {upcomingMonths.length > 0 && (
-        <div className="bg-amber-50 rounded-2xl p-4">
-          <div className="text-xs text-amber-700 font-medium mb-2">📅 Ya comprometido a futuro (compras con tarjeta)</div>
-          <div className="flex flex-col gap-1.5">
-            {upcomingMonths.map((m) => (
-              <div key={m.mk} className="flex items-center justify-between text-sm">
-                <span className="text-amber-800 capitalize">{monthLabel(m.mk)}</span>
-                <span className="font-semibold text-amber-900">{fmt(m.total)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       <div className="flex items-center justify-between text-xs text-slate-400 px-1">
         {!editingCierre ? (
@@ -776,6 +770,16 @@ function BalanceTab({ data, setIncome, setCierreDay }) {
           </div>
         )}
       </div>
+
+      {upcomingMonths.map((m) => (
+        <MonthSummary
+          key={m.mk}
+          mk={m.mk}
+          ingreso={m.ingresoMes}
+          gasto={m.gastoComprometido}
+          onSaveIncome={setIncome}
+        />
+      ))}
 
       <div className="bg-white rounded-2xl border border-slate-100 p-4">
         {pieData.length === 0 ? (
