@@ -191,12 +191,25 @@ function getLocation(timeoutMs = 4000) {
   });
 }
 
+// Calcula en qué mes impacta realmente una compra según el método de pago.
+// No-crédito: impacta el mismo mes de la compra.
+// Crédito: si el día de compra es <= día de cierre, cae en el resumen que
+// cierra este mes y se paga el mes que viene; si es posterior, cae en el
+// resumen siguiente y se paga dos meses después.
+function computeChargeMonth(date, paymentMethod, cierreDay) {
+  if (paymentMethod !== "credito") return monthKey(date);
+  const shift = date.getDate() <= cierreDay ? 1 : 2;
+  const d2 = new Date(date.getFullYear(), date.getMonth() + shift, 1);
+  return monthKey(d2);
+}
+
 /* ------------------------------------------------------------------ */
 /* Almacenamiento compartido (Google Sheet vía Apps Script)            */
 /* ------------------------------------------------------------------ */
 
 function useSharedData() {
-  const [data, setData] = useState({ transactions: [], income: {}, savings: [] });
+  const DEFAULT_CONFIG = { cierreDay: 15, lastPaymentMethod: "no_credito" };
+  const [data, setData] = useState({ transactions: [], income: {}, savings: [], config: DEFAULT_CONFIG });
   const [ready, setReady] = useState(false);
   const [saveError, setSaveError] = useState(false);
 
@@ -207,6 +220,7 @@ function useSharedData() {
         transactions: fresh.transactions || [],
         income: fresh.income || {},
         savings: fresh.savings || [],
+        config: { ...DEFAULT_CONFIG, ...(fresh.config || {}) },
       });
       setSaveError(false);
     } catch (e) {
@@ -225,6 +239,7 @@ function useSharedData() {
           transactions: fresh.transactions || [],
           income: fresh.income || {},
           savings: fresh.savings || [],
+          config: { ...DEFAULT_CONFIG, ...(fresh.config || {}) },
         });
         setSaveError(false);
       })
@@ -232,7 +247,11 @@ function useSharedData() {
   }, []);
 
   const addTransaction = useCallback((tx) => {
-    setData((prev) => ({ ...prev, transactions: [tx, ...prev.transactions] })); // optimista
+    setData((prev) => ({
+      ...prev,
+      transactions: [tx, ...prev.transactions],
+      config: { ...prev.config, lastPaymentMethod: tx.paymentMethod },
+    })); // optimista
     mutate({ action: "addTransaction", tx });
   }, [mutate]);
 
@@ -259,9 +278,14 @@ function useSharedData() {
     mutate({ action: "deleteSavings", id });
   }, [mutate]);
 
+  const setCierreDay = useCallback((day) => {
+    setData((prev) => ({ ...prev, config: { ...prev.config, cierreDay: day } }));
+    mutate({ action: "setConfig", key: "cierreDay", value: day });
+  }, [mutate]);
+
   return {
     data, ready, saveError, refresh, addTransaction, deleteTransaction, setIncome,
-    addSavingsMovement, deleteSavingsMovement,
+    addSavingsMovement, deleteSavingsMovement, setCierreDay,
   };
 }
 
@@ -296,13 +320,14 @@ function Keypad({ value, onChange }) {
 /* Pestaña 1: Cargar gasto                                             */
 /* ------------------------------------------------------------------ */
 
-function EntryTab({ addTransaction }) {
+function EntryTab({ addTransaction, config }) {
   const [path, setPath] = useState([]);
   const [step, setStep] = useState("cat");
   const [freeTextInput, setFreeTextInput] = useState("");
   const [pendingFreeText, setPendingFreeText] = useState(null);
   const [amount, setAmount] = useState("0");
   const [concept, setConcept] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState(config.lastPaymentMethod || "no_credito");
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
   const geoRef = useRef(null);
@@ -327,6 +352,7 @@ function EntryTab({ addTransaction }) {
     setConcept("");
     setFreeTextInput("");
     setPendingFreeText(null);
+    // paymentMethod NO se resetea: se mantiene la última usada para agilizar la próxima carga
   }
 
   function pickCategory(cat) {
@@ -404,6 +430,8 @@ function EntryTab({ addTransaction }) {
       concept: concept.trim() || null,
       lat: loc?.lat ?? null,
       lng: loc?.lng ?? null,
+      paymentMethod,
+      chargeMonth: computeChargeMonth(now, paymentMethod, config.cierreDay),
     };
     addTransaction(tx);
     setSaving(false);
@@ -501,6 +529,24 @@ function EntryTab({ addTransaction }) {
             placeholder={path[0]?.conceptPlaceholder || "Concepto (opcional)"}
             className="w-full max-w-xs border-2 border-slate-200 rounded-xl px-4 py-3 text-base focus:outline-none focus:border-slate-400"
           />
+          <div className="w-full max-w-xs grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setPaymentMethod("no_credito")}
+              className={`rounded-xl py-2.5 text-sm font-semibold ${
+                paymentMethod === "no_credito" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500"
+              }`}
+            >
+              💵 Débito·Twint·Efectivo
+            </button>
+            <button
+              onClick={() => setPaymentMethod("credito")}
+              className={`rounded-xl py-2.5 text-sm font-semibold ${
+                paymentMethod === "credito" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500"
+              }`}
+            >
+              💳 Crédito
+            </button>
+          </div>
           <button
             onClick={handleSave}
             disabled={saving || !parseFloat(amount)}
@@ -561,17 +607,28 @@ function DonutChart({ data, size = 200 }) {
   );
 }
 
-function BalanceTab({ data, setIncome }) {
+function BalanceTab({ data, setIncome, setCierreDay }) {
   const now = new Date();
   const currentMK = monthKey(now);
   const [editingIncome, setEditingIncome] = useState(false);
   const [incomeAmount, setIncomeAmount] = useState("0");
+  const [editingCierre, setEditingCierre] = useState(false);
+  const [cierreInput, setCierreInput] = useState(String(data.config.cierreDay));
 
   const monthTx = data.transactions.filter((t) => monthKey(new Date(t.ts)) === currentMK);
   const gasto = monthTx.reduce((s, t) => s + t.amount, 0);
   const incomeRec = data.income[currentMK];
   const ingreso = incomeRec?.amount || 0;
   const saldo = ingreso - gasto;
+
+  // "Sale de la cuenta este mes": no-crédito del mes actual + crédito cuyo
+  // chargeMonth cae en este mes (aunque la compra sea de un mes anterior).
+  const chargeTx = data.transactions.filter((t) => {
+    const cm = t.chargeMonth || monthKey(new Date(t.ts));
+    return cm === currentMK;
+  });
+  const saleDeLaCuenta = chargeTx.reduce((s, t) => s + t.amount, 0);
+  const saldoReal = ingreso - saleDeLaCuenta;
 
   const needsReminder = now.getDate() >= 25 && (!incomeRec ||
     new Date(incomeRec.updatedAt).getMonth() !== now.getMonth() ||
@@ -594,6 +651,13 @@ function BalanceTab({ data, setIncome }) {
     if (!n || n <= 0) return;
     setIncome(currentMK, n);
     setEditingIncome(false);
+  }
+
+  function saveCierre() {
+    const d = parseInt(cierreInput, 10);
+    if (!d || d < 1 || d > 31) return;
+    setCierreDay(d);
+    setEditingCierre(false);
   }
 
   return (
@@ -651,6 +715,42 @@ function BalanceTab({ data, setIncome }) {
           </div>
         </div>
       )}
+
+      <div className="bg-indigo-50 rounded-2xl p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-xs text-indigo-700 font-medium">💳 Sale de la cuenta este mes</div>
+            <div className="text-[11px] text-indigo-400">no-crédito de {monthLabel(currentMK)} + crédito que vence ahora</div>
+          </div>
+          <div className="text-lg font-bold text-indigo-800 whitespace-nowrap">{fmt(saleDeLaCuenta)}</div>
+        </div>
+        <div className="flex items-center justify-between mt-2 pt-2 border-t border-indigo-100">
+          <span className="text-xs text-indigo-700 font-medium">Saldo real</span>
+          <span className={`text-sm font-bold ${saldoReal >= 0 ? "text-indigo-800" : "text-rose-600"}`}>{fmt(saldoReal)}</span>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between text-xs text-slate-400 px-1">
+        {!editingCierre ? (
+          <button onClick={() => { setCierreInput(String(data.config.cierreDay)); setEditingCierre(true); }} className="underline">
+            ⚙️ Día de cierre de la tarjeta: {data.config.cierreDay}
+          </button>
+        ) : (
+          <div className="flex items-center gap-2">
+            <span>Día de cierre:</span>
+            <input
+              type="number"
+              min="1"
+              max="31"
+              value={cierreInput}
+              onChange={(e) => setCierreInput(e.target.value)}
+              className="w-14 border border-slate-300 rounded-lg px-2 py-1 text-slate-700 text-sm"
+            />
+            <button onClick={saveCierre} className="text-emerald-600 font-semibold">Guardar</button>
+            <button onClick={() => setEditingCierre(false)} className="text-slate-400">Cancelar</button>
+          </div>
+        )}
+      </div>
 
       <div className="bg-white rounded-2xl border border-slate-100 p-4">
         {pieData.length === 0 ? (
@@ -812,7 +912,7 @@ function HistorialTab({ data, deleteTransaction }) {
     .sort((a, b) => new Date(b.ts) - new Date(a.ts));
 
   function exportCSV() {
-    const header = ["Fecha", "Hora", "Categoria", "Subcategoria", "Detalle", "Concepto", "Importe", "Latitud", "Longitud"];
+    const header = ["Fecha", "Hora", "Categoria", "Subcategoria", "Detalle", "Concepto", "Importe", "MetodoPago", "MesDeCargo", "Latitud", "Longitud"];
     const rows = data.transactions
       .slice()
       .sort((a, b) => new Date(a.ts) - new Date(b.ts))
@@ -826,6 +926,8 @@ function HistorialTab({ data, deleteTransaction }) {
           t.detail || "",
           t.concept || "",
           t.amount.toFixed(2),
+          t.paymentMethod === "credito" ? "Credito" : "Debito/Twint/Efectivo",
+          t.chargeMonth || "",
           t.lat ?? "",
           t.lng ?? "",
         ];
@@ -883,6 +985,10 @@ function HistorialTab({ data, deleteTransaction }) {
                   {t.concept ? `${t.concept} · ` : ""}{d.toLocaleDateString("es-AR")} {d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
                   {t.lat != null ? " · 📍" : ""}
                 </div>
+                <div className="text-[11px] text-slate-400 mt-0.5">
+                  {t.paymentMethod === "credito" ? "💳 Crédito" : "💵 Débito·Twint·Efectivo"}
+                  {t.paymentMethod === "credito" && t.chargeMonth ? ` · se paga ${monthLabel(t.chargeMonth)}` : ""}
+                </div>
               </div>
               <div className="text-sm font-bold text-slate-700 whitespace-nowrap">{fmt(t.amount)}</div>
               {confirmId === t.id ? (
@@ -920,7 +1026,7 @@ function HistorialTab({ data, deleteTransaction }) {
 function App() {
   const {
     data, ready, saveError, refresh, addTransaction, deleteTransaction, setIncome,
-    addSavingsMovement, deleteSavingsMovement,
+    addSavingsMovement, deleteSavingsMovement, setCierreDay,
   } = useSharedData();
   const [tab, setTab] = useState("entry");
 
@@ -951,9 +1057,9 @@ function App() {
         {!ready ? (
           <div className="h-full flex items-center justify-center text-slate-400 text-sm">Cargando…</div>
         ) : tab === "entry" ? (
-          <EntryTab addTransaction={addTransaction} />
+          <EntryTab addTransaction={addTransaction} config={data.config} />
         ) : tab === "balance" ? (
-          <BalanceTab data={data} setIncome={setIncome} />
+          <BalanceTab data={data} setIncome={setIncome} setCierreDay={setCierreDay} />
         ) : tab === "ahorros" ? (
           <AhorrosTab data={data} addSavingsMovement={addSavingsMovement} deleteSavingsMovement={deleteSavingsMovement} />
         ) : (
