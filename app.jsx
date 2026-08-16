@@ -112,12 +112,12 @@ const CATS = [
   {
     key: "casa", label: "Casa", emoji: "🛋️",
     color: "#8b5cf6", light: "#ede9fe", dark: "#5b21b6",
-    subs: null, freeText: true,
+    subs: null, conceptPlaceholder: "Ej: mueble, arreglo, decoración",
   },
   {
     key: "ropa", label: "Ropa", emoji: "👗",
     color: "#d946ef", light: "#fae8ff", dark: "#86198f",
-    subs: null, freeText: true,
+    subs: null, conceptPlaceholder: "Ej: zapatillas, campera, ropa interior",
   },
   {
     key: "varios", label: "Varios", emoji: "🔀",
@@ -330,7 +330,10 @@ function EntryTab({ addTransaction }) {
   }
 
   function pickCategory(cat) {
-    const node = { level: "cat", key: cat.key, label: cat.label, emoji: cat.emoji, color: cat.color, dark: cat.dark };
+    const node = {
+      level: "cat", key: cat.key, label: cat.label, emoji: cat.emoji, color: cat.color, dark: cat.dark,
+      conceptPlaceholder: cat.conceptPlaceholder,
+    };
     if (cat.freeText && !cat.subs) {
       setPendingFreeText({ parent: [node] });
       setPath([node]);
@@ -495,7 +498,7 @@ function EntryTab({ addTransaction }) {
           <input
             value={concept}
             onChange={(e) => setConcept(e.target.value)}
-            placeholder="Concepto (opcional)"
+            placeholder={path[0]?.conceptPlaceholder || "Concepto (opcional)"}
             className="w-full max-w-xs border-2 border-slate-200 rounded-xl px-4 py-3 text-base focus:outline-none focus:border-slate-400"
           />
           <button
@@ -561,7 +564,8 @@ function DonutChart({ data, size = 200 }) {
 function BalanceTab({ data, setIncome }) {
   const now = new Date();
   const currentMK = monthKey(now);
-  const [incomeInput, setIncomeInput] = useState("");
+  const [editingIncome, setEditingIncome] = useState(false);
+  const [incomeAmount, setIncomeAmount] = useState("0");
 
   const monthTx = data.transactions.filter((t) => monthKey(new Date(t.ts)) === currentMK);
   const gasto = monthTx.reduce((s, t) => s + t.amount, 0);
@@ -580,18 +584,23 @@ function BalanceTab({ data, setIncome }) {
   });
   const pieData = Object.values(byCat);
 
+  function startEditIncome() {
+    setIncomeAmount(ingreso ? String(ingreso) : "0");
+    setEditingIncome(true);
+  }
+
   function saveIncome() {
-    const n = parseFloat(incomeInput);
+    const n = parseFloat(incomeAmount);
     if (!n || n <= 0) return;
     setIncome(currentMK, n);
-    setIncomeInput("");
+    setEditingIncome(false);
   }
 
   return (
     <div className="p-4 flex flex-col gap-4 overflow-y-auto">
       <h2 className="text-lg font-bold text-slate-800 capitalize">{monthLabel(currentMK)}</h2>
 
-      {needsReminder && (
+      {needsReminder && !editingIncome && (
         <div className="bg-amber-100 border border-amber-300 text-amber-900 rounded-2xl p-3 text-sm flex items-center justify-between gap-2">
           <span>📅 Es 25 o más tarde — actualizá el ingreso del mes.</span>
         </div>
@@ -612,18 +621,36 @@ function BalanceTab({ data, setIncome }) {
         </div>
       </div>
 
-      <div className="flex gap-2 items-center">
-        <input
-          value={incomeInput}
-          onChange={(e) => setIncomeInput(e.target.value)}
-          type="number"
-          placeholder={`Actualizar ingreso de ${monthLabel(currentMK)}`}
-          className="flex-1 border-2 border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-slate-400"
-        />
-        <button onClick={saveIncome} className="bg-slate-800 text-white rounded-xl px-4 py-2 text-sm font-semibold">
-          Guardar
+      {!editingIncome ? (
+        <button
+          onClick={startEditIncome}
+          className="bg-slate-800 text-white rounded-xl px-4 py-2.5 text-sm font-semibold"
+        >
+          ✏️ Actualizar ingreso de {monthLabel(currentMK)}
         </button>
-      </div>
+      ) : (
+        <div className="flex flex-col items-center gap-3 bg-slate-50 rounded-2xl p-4">
+          <div className="text-2xl font-bold tabular-nums text-emerald-700">
+            {CURRENCY} {incomeAmount}
+          </div>
+          <Keypad value={incomeAmount} onChange={setIncomeAmount} />
+          <div className="grid grid-cols-2 gap-2 w-full max-w-xs">
+            <button
+              onClick={() => setEditingIncome(false)}
+              className="rounded-xl py-2.5 text-sm font-semibold text-slate-500 bg-slate-200"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={saveIncome}
+              disabled={!parseFloat(incomeAmount)}
+              className="rounded-xl py-2.5 text-sm font-semibold text-white bg-emerald-500 disabled:opacity-40"
+            >
+              Guardar
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white rounded-2xl border border-slate-100 p-4">
         {pieData.length === 0 ? (
