@@ -253,12 +253,11 @@ function useSharedData() {
 
   const mutate = useCallback((payload) => {
     apiPost(payload)
-      .then((fresh) => {
-        applyFresh(fresh);
+      .then(() => {
         setSaveError(false);
       })
       .catch(() => setSaveError(true));
-  }, [applyFresh]);
+  }, []);
 
   const addTransaction = useCallback((tx) => {
     setData((prev) => ({
