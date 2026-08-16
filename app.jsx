@@ -630,6 +630,17 @@ function BalanceTab({ data, setIncome, setCierreDay }) {
   const saleDeLaCuenta = chargeTx.reduce((s, t) => s + t.amount, 0);
   const saldoReal = ingreso - saleDeLaCuenta;
 
+  // Próximos meses: lo ya comprometido a futuro por compras con tarjeta
+  // (el desfasaje máximo es de 2 meses, así que alcanza con mirar 2 hacia adelante).
+  const upcomingMonths = [1, 2].map((offset) => {
+    const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+    const mk = monthKey(d);
+    const total = data.transactions
+      .filter((t) => t.chargeMonth === mk)
+      .reduce((s, t) => s + t.amount, 0);
+    return { mk, total };
+  }).filter((m) => m.total > 0);
+
   const needsReminder = now.getDate() >= 25 && (!incomeRec ||
     new Date(incomeRec.updatedAt).getMonth() !== now.getMonth() ||
     new Date(incomeRec.updatedAt).getFullYear() !== now.getFullYear());
@@ -729,6 +740,20 @@ function BalanceTab({ data, setIncome, setCierreDay }) {
           <span className={`text-sm font-bold ${saldoReal >= 0 ? "text-indigo-800" : "text-rose-600"}`}>{fmt(saldoReal)}</span>
         </div>
       </div>
+
+      {upcomingMonths.length > 0 && (
+        <div className="bg-amber-50 rounded-2xl p-4">
+          <div className="text-xs text-amber-700 font-medium mb-2">📅 Ya comprometido a futuro (compras con tarjeta)</div>
+          <div className="flex flex-col gap-1.5">
+            {upcomingMonths.map((m) => (
+              <div key={m.mk} className="flex items-center justify-between text-sm">
+                <span className="text-amber-800 capitalize">{monthLabel(m.mk)}</span>
+                <span className="font-semibold text-amber-900">{fmt(m.total)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center justify-between text-xs text-slate-400 px-1">
         {!editingCierre ? (
