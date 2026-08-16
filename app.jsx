@@ -82,8 +82,8 @@ const CATS = [
     color: "#10b981", light: "#d1fae5", dark: "#065f46",
     subs: [
       { key: "supermercado", label: "Supermercado" },
+      { key: "kiosko", label: "Kiosko" },
       { key: "restaurante", label: "Restaurante" },
-      { key: "otro", label: "Otro", freeText: true },
     ],
   },
   {
@@ -113,8 +113,9 @@ const CATS = [
     color: "#f59e0b", light: "#fef3c7", dark: "#92400e",
     subs: [
       { key: "ubs", label: "UBS", subs: buildLoanInstallments() },
-      { key: "procrear", label: "PROCREAR", freeText: true },
-      { key: "terreno", label: "Terreno", freeText: true },
+      { key: "luis_terreno", label: "Luis-Terreno", freeText: true },
+      { key: "procrear", label: "Procrear", freeText: true },
+      { key: "marcelita_rtrader", label: "Marcelita Ferro y RTrader", freeText: true },
       { key: "otro", label: "Otro", freeText: true },
     ],
   },
@@ -371,7 +372,84 @@ function Keypad({ value, onChange }) {
 /* Pestaña 1: Cargar gasto                                             */
 /* ------------------------------------------------------------------ */
 
-function EntryTab({ addTransaction, config }) {
+/* ------------------------------------------------------------------ */
+/* Salud financiera: proyección de caja + estado, para decidir mejor   */
+/* ------------------------------------------------------------------ */
+
+function FinancialHealthPanel({ data }) {
+  const currency = "CHF"; // gasto diario de referencia
+  const now = new Date();
+  const effMonth = (t) => t.chargeMonth || monthKey(new Date(t.ts));
+
+  const monthsData = [0, 1, 2].map((offset) => {
+    const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+    const mk = monthKey(d);
+    const gasto = data.transactions
+      .filter((t) => t.currency === currency && effMonth(t) === mk)
+      .reduce((s, t) => s + t.amount, 0);
+    const ingreso = data.income[`${mk}:${currency}`]?.amount || 0;
+    return { mk, ingreso, gasto, saldo: ingreso - gasto };
+  });
+
+  const disponible = data.savings.filter((m) => !m.purpose).reduce((s, m) => s + m.amount, 0);
+  const reservado = data.savings.filter((m) => m.purpose).reduce((s, m) => s + m.amount, 0);
+
+  const worstSaldo = Math.min(...monthsData.map((m) => m.saldo));
+  let status;
+  if (worstSaldo >= 0) {
+    status = { emoji: "🟢", bg: "bg-emerald-50", text: "text-emerald-700", label: "Situación saludable: los próximos meses cierran en positivo." };
+  } else if (disponible + worstSaldo >= 0) {
+    status = { emoji: "🟡", bg: "bg-amber-50", text: "text-amber-700", label: "Ajustado: algún mes cierra en rojo, pero el ahorro disponible lo cubre." };
+  } else {
+    status = { emoji: "🔴", bg: "bg-rose-50", text: "text-rose-700", label: "Atención: el ahorro disponible no alcanza para cubrir el mes más ajustado." };
+  }
+
+  const maxVal = Math.max(1, ...monthsData.flatMap((m) => [m.ingreso, m.gasto]));
+
+  return (
+    <div className="mx-4 mb-4 bg-white rounded-2xl border border-slate-100 p-4 flex flex-col gap-3">
+      <div className="text-sm font-bold text-slate-700">📈 Salud financiera (CHF)</div>
+      <div className={`rounded-xl p-2.5 flex items-start gap-2 ${status.bg}`}>
+        <span>{status.emoji}</span>
+        <span className={`text-xs ${status.text}`}>{status.label}</span>
+      </div>
+
+      <div className="flex flex-col gap-2.5">
+        {monthsData.map((m) => (
+          <div key={m.mk} className="flex flex-col gap-1">
+            <div className="flex items-center justify-between text-xs text-slate-500">
+              <span className="capitalize">{monthLabel(m.mk)}</span>
+              <span className={`font-semibold ${m.saldo >= 0 ? "text-sky-600" : "text-rose-600"}`}>{fmt(m.saldo, currency)}</span>
+            </div>
+            <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+              <div className="h-full bg-emerald-400" style={{ width: `${(m.ingreso / maxVal) * 100}%` }} />
+            </div>
+            <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+              <div className="h-full bg-rose-400" style={{ width: `${(m.gasto / maxVal) * 100}%` }} />
+            </div>
+          </div>
+        ))}
+        <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-0.5">
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400" /> Ingreso</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-400" /> Gasto comprometido</span>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-100">
+        <span className="text-slate-500">🐷 Ahorro disponible</span>
+        <span className="font-semibold text-slate-700">{fmt(disponible, currency)}</span>
+      </div>
+      {reservado > 0 && (
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-slate-500">🎯 Ahorro reservado</span>
+          <span className="font-semibold text-slate-700">{fmt(reservado, currency)}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EntryTab({ addTransaction, config, data }) {
   const [path, setPath] = useState([]);
   const [step, setStep] = useState("cat");
   const [freeTextInput, setFreeTextInput] = useState("");
@@ -515,25 +593,28 @@ function EntryTab({ addTransaction, config }) {
       )}
 
       {step === "cat" && (
-        <div className="grid grid-cols-2 gap-3 p-4 overflow-y-auto">
-          {CATS.map((c) => {
-            const isLight = c.color === "#ffffff";
-            return (
-              <button
-                key={c.key}
-                onClick={() => pickCategory(c)}
-                style={{
-                  backgroundColor: c.color,
-                  color: isLight ? c.dark : "#ffffff",
-                  border: isLight ? `2px solid ${c.dark}22` : "none",
-                }}
-                className="rounded-3xl p-4 h-28 flex flex-col items-center justify-center gap-1 shadow-sm active:scale-95 transition-transform"
-              >
-                <span className="text-3xl">{c.emoji}</span>
-                <span className="text-sm font-semibold text-center leading-tight">{c.label}</span>
-              </button>
-            );
-          })}
+        <div className="overflow-y-auto flex-1">
+          <div className="grid grid-cols-2 gap-3 p-4">
+            {CATS.map((c) => {
+              const isLight = c.color === "#ffffff";
+              return (
+                <button
+                  key={c.key}
+                  onClick={() => pickCategory(c)}
+                  style={{
+                    backgroundColor: c.color,
+                    color: isLight ? c.dark : "#ffffff",
+                    border: isLight ? `2px solid ${c.dark}22` : "none",
+                  }}
+                  className="rounded-3xl p-4 h-28 flex flex-col items-center justify-center gap-1 shadow-sm active:scale-95 transition-transform"
+                >
+                  <span className="text-3xl">{c.emoji}</span>
+                  <span className="text-sm font-semibold text-center leading-tight">{c.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          <FinancialHealthPanel data={data} />
         </div>
       )}
 
@@ -1240,28 +1321,24 @@ function AhorroTab({ data, addSavingsMovement, deleteSavingsMovement }) {
 /* ------------------------------------------------------------------ */
 
 const ASSET_TYPES = {
-  casa: { emoji: "🏠", label: "Casa" },
+  terreno: { emoji: "🌳", label: "Terreno" },
+  casa: { emoji: "🏠", label: "Casa (Procrear)" },
   auto: { emoji: "🚗", label: "Auto" },
-  otro: { emoji: "📦", label: "Otro" },
 };
 
-function PatrimonioTab({ data, setFxRate, saveAsset, deleteAsset }) {
+function PatrimonioTab({ data, saveAsset, deleteAsset }) {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [name, setName] = useState("");
   const [type, setType] = useState("casa");
-  const [assetCurrency, setAssetCurrency] = useState("USD");
   const [value, setValue] = useState("");
   const [debt, setDebt] = useState("");
   const [confirmId, setConfirmId] = useState(null);
-  const [editingFx, setEditingFx] = useState(false);
-  const [fxInput, setFxInput] = useState(String(data.config.fxRate || ""));
 
   function startNew() {
     setEditingId(null);
     setName("");
     setType("casa");
-    setAssetCurrency("USD");
     setValue("");
     setDebt("");
     setShowForm(true);
@@ -1271,7 +1348,6 @@ function PatrimonioTab({ data, setFxRate, saveAsset, deleteAsset }) {
     setEditingId(a.id);
     setName(a.name);
     setType(a.type);
-    setAssetCurrency(a.currency);
     setValue(String(a.value));
     setDebt(String(a.debt || 0));
     setShowForm(true);
@@ -1284,72 +1360,20 @@ function PatrimonioTab({ data, setFxRate, saveAsset, deleteAsset }) {
       id: editingId || uid(),
       name: name.trim(),
       type,
-      currency: assetCurrency,
+      currency: "USD",
       value: v,
       debt: parseFloat(debt) || 0,
     });
     setShowForm(false);
   }
 
-  function saveFx() {
-    const r = parseFloat(fxInput);
-    if (!r) return;
-    setFxRate(r);
-    setEditingFx(false);
-  }
-
-  const byCurrency = { USD: { value: 0, debt: 0 }, ARS: { value: 0, debt: 0 } };
-  data.assets.forEach((a) => {
-    if (!byCurrency[a.currency]) byCurrency[a.currency] = { value: 0, debt: 0 };
-    byCurrency[a.currency].value += a.value;
-    byCurrency[a.currency].debt += a.debt || 0;
-  });
-  const netUSD = byCurrency.USD.value - byCurrency.USD.debt;
-  const netARS = byCurrency.ARS.value - byCurrency.ARS.debt;
-  const fx = parseFloat(data.config.fxRate);
-  const consolidatedUSD = fx ? netUSD + netARS / fx : null;
+  const netTotal = data.assets.reduce((s, a) => s + (a.value - (a.debt || 0)), 0);
 
   return (
     <div className="p-4 flex flex-col gap-4 overflow-y-auto">
-      <div className="grid grid-cols-2 gap-2">
-        <div className="bg-sky-50 rounded-2xl p-3 text-center">
-          <div className="text-xs text-sky-700 font-medium">💵 Neto (USD)</div>
-          <div className="text-sm font-bold text-sky-800">{fmt(netUSD, "USD")}</div>
-        </div>
-        <div className="bg-amber-50 rounded-2xl p-3 text-center">
-          <div className="text-xs text-amber-700 font-medium">🇦🇷 Neto Argentina</div>
-          <div className="text-sm font-bold text-amber-800">{fmt(netARS, "ARS")}</div>
-        </div>
-      </div>
-
-      <div className="bg-violet-50 rounded-2xl p-4">
-        <div className="flex items-center justify-between">
-          <div className="text-xs text-violet-700 font-medium">Patrimonio neto consolidado</div>
-          <div className="text-lg font-bold text-violet-800">
-            {consolidatedUSD != null ? fmt(consolidatedUSD, "USD") : "—"}
-          </div>
-        </div>
-        <div className="mt-2 pt-2 border-t border-violet-100 text-xs text-violet-500">
-          {!editingFx ? (
-            <button onClick={() => { setFxInput(String(data.config.fxRate || "")); setEditingFx(true); }} className="underline">
-              ⚙️ Tipo de cambio: {data.config.fxRate ? `1 USD = ${data.config.fxRate} ARS` : "sin configurar"}
-            </button>
-          ) : (
-            <div className="flex items-center gap-2 flex-wrap">
-              <span>1 USD =</span>
-              <input
-                type="number"
-                value={fxInput}
-                onChange={(e) => setFxInput(e.target.value)}
-                placeholder="ARS"
-                className="w-24 border border-violet-300 rounded-lg px-2 py-1 text-violet-700"
-              />
-              <span>ARS</span>
-              <button onClick={saveFx} className="text-emerald-600 font-semibold">Guardar</button>
-              <button onClick={() => setEditingFx(false)} className="text-slate-400">Cancelar</button>
-            </div>
-          )}
-        </div>
+      <div className="bg-sky-50 rounded-2xl p-4 text-center">
+        <div className="text-xs text-sky-700 font-medium">💵 Patrimonio neto (USD)</div>
+        <div className="text-2xl font-bold text-sky-800">{fmt(netTotal, "USD")}</div>
       </div>
 
       {!showForm ? (
@@ -1378,26 +1402,8 @@ function PatrimonioTab({ data, setFxRate, saveAsset, deleteAsset }) {
             ))}
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() => setAssetCurrency("USD")}
-              className={`rounded-xl py-2 text-sm font-semibold ${
-                assetCurrency === "USD" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"
-              }`}
-            >
-              💵 USD
-            </button>
-            <button
-              onClick={() => setAssetCurrency("ARS")}
-              className={`rounded-xl py-2 text-sm font-semibold ${
-                assetCurrency === "ARS" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"
-              }`}
-            >
-              🇦🇷 ARS
-            </button>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-xs text-slate-500">Valor</label>
+              <label className="text-xs text-slate-500">Valor (USD)</label>
               <input
                 type="number"
                 value={value}
@@ -1441,10 +1447,10 @@ function PatrimonioTab({ data, setFxRate, saveAsset, deleteAsset }) {
               <button className="flex-1 min-w-0 text-left" onClick={() => startEdit(a)}>
                 <div className="text-sm font-semibold text-slate-800 truncate">{a.name}</div>
                 <div className="text-xs text-slate-400">
-                  Valor {fmt(a.value, a.currency)}{a.debt ? ` · Deuda ${fmt(a.debt, a.currency)}` : ""}
+                  Valor {fmt(a.value, "USD")}{a.debt ? ` · Deuda ${fmt(a.debt, "USD")}` : ""}
                 </div>
               </button>
-              <div className="text-sm font-bold text-slate-700 whitespace-nowrap">{fmt(net, a.currency)}</div>
+              <div className="text-sm font-bold text-slate-700 whitespace-nowrap">{fmt(net, "USD")}</div>
               {confirmId === a.id ? (
                 <div className="flex items-center gap-1 flex-shrink-0">
                   <button
@@ -1528,7 +1534,7 @@ function App() {
         {!ready ? (
           <div className="h-full flex items-center justify-center text-slate-400 text-sm">Cargando…</div>
         ) : tab === "entry" ? (
-          <EntryTab addTransaction={addTransaction} config={data.config} />
+          <EntryTab addTransaction={addTransaction} config={data.config} data={data} />
         ) : tab === "balance" ? (
           <BalanceTab data={data} currency={viewCurrency} setIncome={setIncome} />
         ) : tab === "proximos" ? (
@@ -1536,7 +1542,7 @@ function App() {
         ) : tab === "ahorro" ? (
           <AhorroTab data={data} addSavingsMovement={addSavingsMovement} deleteSavingsMovement={deleteSavingsMovement} />
         ) : tab === "patrimonio" ? (
-          <PatrimonioTab data={data} setFxRate={setFxRate} saveAsset={saveAsset} deleteAsset={deleteAsset} />
+          <PatrimonioTab data={data} saveAsset={saveAsset} deleteAsset={deleteAsset} />
         ) : (
           <HistorialTab data={data} currency={viewCurrency} deleteTransaction={deleteTransaction} />
         )}
