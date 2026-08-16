@@ -682,20 +682,16 @@ function BalanceTab({ data, setIncome, setCierreDay }) {
   const [cierreInput, setCierreInput] = useState(String(data.config.cierreDay));
 
   const monthTx = data.transactions.filter((t) => monthKey(new Date(t.ts)) === currentMK);
-  const gasto = monthTx.reduce((s, t) => s + t.amount, 0);
   const incomeRec = data.income[currentMK];
   const ingreso = incomeRec?.amount || 0;
 
-  // "Sale de la cuenta este mes": no-crédito del mes actual + crédito cuyo
-  // chargeMonth cae en este mes (aunque la compra sea de un mes anterior).
-  const chargeTx = data.transactions.filter((t) => {
-    const cm = t.chargeMonth || monthKey(new Date(t.ts));
-    return cm === currentMK;
-  });
-  const saleDeLaCuenta = chargeTx.reduce((s, t) => s + t.amount, 0);
-  const saldoReal = ingreso - saleDeLaCuenta;
+  // "Gastos" del mes actual = lo que realmente sale de la cuenta este mes:
+  // no-crédito de este mes + crédito de compras anteriores que vence ahora.
+  const gasto = data.transactions
+    .filter((t) => (t.chargeMonth || monthKey(new Date(t.ts))) === currentMK)
+    .reduce((s, t) => s + t.amount, 0);
 
-  // Próximos meses: mismo bloque visual que el mes actual, con "Gastos" = lo ya
+  // Próximos meses: mismo bloque visual, con "Gastos" = lo ya
   // comprometido por compras con tarjeta que van a cobrarse ese mes.
   const upcomingMonths = [1, 2].map((offset) => {
     const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
@@ -734,20 +730,6 @@ function BalanceTab({ data, setIncome, setCierreDay }) {
       )}
 
       <MonthSummary mk={currentMK} ingreso={ingreso} gasto={gasto} onSaveIncome={setIncome} />
-
-      <div className="bg-indigo-50 rounded-2xl p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-xs text-indigo-700 font-medium">💳 Sale de la cuenta este mes</div>
-            <div className="text-[11px] text-indigo-400">no-crédito de {monthLabel(currentMK)} + crédito que vence ahora</div>
-          </div>
-          <div className="text-lg font-bold text-indigo-800 whitespace-nowrap">{fmt(saleDeLaCuenta)}</div>
-        </div>
-        <div className="flex items-center justify-between mt-2 pt-2 border-t border-indigo-100">
-          <span className="text-xs text-indigo-700 font-medium">Saldo real</span>
-          <span className={`text-sm font-bold ${saldoReal >= 0 ? "text-indigo-800" : "text-rose-600"}`}>{fmt(saldoReal)}</span>
-        </div>
-      </div>
 
       <div className="flex items-center justify-between text-xs text-slate-400 px-1">
         {!editingCierre ? (
