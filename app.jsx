@@ -5,7 +5,7 @@ const { useState, useEffect, useRef, useCallback } = React;
 /* Usamos JSONP (carga vía <script>) en vez de fetch() porque Apps      */
 /* Script no soporta configurar CORS, y fetch() cross-origin lo bloquea.*/
 /* ------------------------------------------------------------------ */
-const API_URL = "https://script.google.com/macros/s/AKfycbziPh3NfDuuRFziySIF4dsji24_fhh4MHKePGPSmfGTyad9mkDLUwcIonGkkwsGPIkY1Q/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbxp-EcvFamQTvDjcjDjyvwmRMa2qRDsutSdJuwIKkQRGEy6lPA4_i0OiD6D8EMwNsbF1g/exec";
 
 function jsonp(url, timeoutMs = 12000) {
   return new Promise((resolve, reject) => {
