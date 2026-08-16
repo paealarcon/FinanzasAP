@@ -77,10 +77,18 @@ function buildLoanInstallments() {
 }
 
 // Datos fijos de cada préstamo (para mostrar debajo del botón de cada uno en Cargar).
-const LOAN_TERRENO_TOTAL_CUOTAS = 100;
-const LOAN_TERRENO_CUOTAS_RESTANTES = 45; // cuotas 55 a 100
+const LOAN_TERRENO_CUOTA_INICIO = 55;
+const LOAN_TERRENO_CUOTA_FIN = 100;
 const LOAN_TERRENO_CUOTA_MENSUAL = 140; // USD
-const LOAN_TERRENO_DEUDA_ACTUAL = 5800; // USD
+
+function buildTerrenoInstallments() {
+  const out = [];
+  for (let n = LOAN_TERRENO_CUOTA_INICIO; n <= LOAN_TERRENO_CUOTA_FIN; n++) {
+    out.push({ key: `cuota-terreno-${n}`, label: `Cuota ${n}`, fixedAmount: LOAN_TERRENO_CUOTA_MENSUAL });
+  }
+  return out;
+}
+const LOAN_TERRENO_TOTAL_INSTALLMENTS = LOAN_TERRENO_CUOTA_FIN - LOAN_TERRENO_CUOTA_INICIO + 1;
 
 function loanDebtInfo(subKey, data) {
   if (subKey === "ubs") {
@@ -90,7 +98,10 @@ function loanDebtInfo(subKey, data) {
     return `Restan ${restantes} cuotas de CHF ${LOAN_MONTHLY_AMOUNT.toLocaleString("es-AR")} · Total: CHF ${montoRestante.toLocaleString("es-AR")}`;
   }
   if (subKey === "luis_terreno") {
-    return `Deuda: USD ${LOAN_TERRENO_DEUDA_ACTUAL.toLocaleString("es-AR")} · ${LOAN_TERRENO_CUOTAS_RESTANTES} cuotas restantes (55/${LOAN_TERRENO_TOTAL_CUOTAS}) · Cuota: USD ${LOAN_TERRENO_CUOTA_MENSUAL}/mes`;
+    const pagadas = data.transactions.filter((t) => t.categoryKey === "prestamos" && t.subcategory === "Luis-Terreno").length;
+    const restantes = Math.max(LOAN_TERRENO_TOTAL_INSTALLMENTS - pagadas, 0);
+    const montoRestante = restantes * LOAN_TERRENO_CUOTA_MENSUAL;
+    return `Restan ${restantes} cuotas de USD ${LOAN_TERRENO_CUOTA_MENSUAL} · Total: USD ${montoRestante.toLocaleString("es-AR")}`;
   }
   if (subKey === "marcelita_rtrader") {
     return `Deuda: CHF 2.000 · Sin intereses ni plazo fijo (familiar)`;
@@ -110,15 +121,6 @@ function calcCuotaSimulada(monto, cuotas, tasaPct) {
 
 const CATS = [
   {
-    key: "supermercado", label: "Víveres", emoji: "🛒", icon: "icon-viveres.png",
-    color: "#4a7c59", light: "#e2ede1", dark: "#234229",
-    subs: [
-      { key: "supermercado", label: "Supermercado" },
-      { key: "kiosko", label: "Kiosko" },
-      { key: "restaurante", label: "Restaurante" },
-    ],
-  },
-  {
     key: "alquiler", label: "Gastos fijos", emoji: "🏠🚆", icon: "icon-gastosfijos.png",
     color: "#e0a238", light: "#fdf1dc", dark: "#7a4e08",
     subs: [
@@ -132,6 +134,15 @@ const CATS = [
     ],
   },
   {
+    key: "supermercado", label: "Víveres", emoji: "🛒", icon: "icon-viveres.png",
+    color: "#4a7c59", light: "#e2ede1", dark: "#234229",
+    subs: [
+      { key: "supermercado", label: "Supermercado" },
+      { key: "kiosko", label: "Kiosko" },
+      { key: "restaurante", label: "Restaurante" },
+    ],
+  },
+  {
     key: "salud", label: "Salud", emoji: "🌿", icon: "icon-salud.png",
     color: "#8ca86b", light: "#eef3e6", dark: "#435330",
     subs: [
@@ -141,25 +152,14 @@ const CATS = [
     ],
   },
   {
-    key: "prestamos", label: "Préstamos", emoji: "💸", icon: "icon-prestamos.png",
-    color: "#c17817", light: "#fbe8cc", dark: "#6b3f0a",
-    subs: [
-      { key: "ubs", label: "UBS", subs: buildLoanInstallments() },
-      { key: "luis_terreno", label: "Luis-Terreno", freeText: true },
-      { key: "procrear", label: "Procrear", freeText: true },
-      { key: "marcelita_rtrader", label: "Marcelita Ferro y RTrader", freeText: true },
-      { key: "otro", label: "Otro", loanSimulator: true },
-    ],
+    key: "ropa", label: "Ropa", emoji: "👗👔", icon: "icon-ropa.png",
+    color: "#bf7e5c", light: "#f8e9e0", dark: "#6b3a22",
+    subs: null, conceptPlaceholder: "Ej: zapatillas, campera, ropa interior",
   },
   {
     key: "casa", label: "Casa", emoji: "🛋️", icon: "icon-casa.png",
     color: "#d9ac5c", light: "#faf0dc", dark: "#6b4d16",
     subs: null, conceptPlaceholder: "Ej: mueble, arreglo, decoración",
-  },
-  {
-    key: "ropa", label: "Ropa", emoji: "👗👔", icon: "icon-ropa.png",
-    color: "#bf7e5c", light: "#f8e9e0", dark: "#6b3a22",
-    subs: null, conceptPlaceholder: "Ej: zapatillas, campera, ropa interior",
   },
   {
     key: "varios", label: "Varios", emoji: "🔀", icon: "icon-varios.png",
@@ -188,6 +188,17 @@ const CATS = [
           { key: "compritas", label: "Compritas" },
         ],
       },
+    ],
+  },
+  {
+    key: "prestamos", label: "Préstamos", emoji: "💸", icon: "icon-prestamos.png",
+    color: "#c17817", light: "#fbe8cc", dark: "#6b3f0a",
+    subs: [
+      { key: "ubs", label: "UBS", subs: buildLoanInstallments() },
+      { key: "luis_terreno", label: "Luis-Terreno", subs: buildTerrenoInstallments() },
+      { key: "procrear", label: "Procrear", freeText: true },
+      { key: "marcelita_rtrader", label: "Marcelita Ferro y RTrader", freeText: true },
+      { key: "otro", label: "Otro", freeText: true },
     ],
   },
 ];
@@ -347,6 +358,11 @@ function useSharedData() {
     mutate({ action: "setConfig", key: "fxRate", value: rate });
   }, [mutate]);
 
+  const setHiddenLoans = useCallback((csv) => {
+    setData((prev) => ({ ...prev, config: { ...prev.config, hiddenLoans: csv } }));
+    mutate({ action: "setConfig", key: "hiddenLoans", value: csv });
+  }, [mutate]);
+
   const saveAsset = useCallback((asset) => {
     setData((prev) => {
       const exists = prev.assets.some((a) => a.id === asset.id);
@@ -365,7 +381,7 @@ function useSharedData() {
 
   return {
     data, ready, saveError, refresh, addTransaction, deleteTransaction, setIncome,
-    addSavingsMovement, deleteSavingsMovement, setCierreDay, setFxRate, saveAsset, deleteAsset,
+    addSavingsMovement, deleteSavingsMovement, setCierreDay, setFxRate, setHiddenLoans, saveAsset, deleteAsset,
   };
 }
 
@@ -507,7 +523,7 @@ function FinancialHealthPanel({ data }) {
   );
 }
 
-function EntryTab({ addTransaction, config, data }) {
+function EntryTab({ addTransaction, config, data, setHiddenLoans }) {
   const [path, setPath] = useState([]);
   const [step, setStep] = useState("cat");
   const [freeTextInput, setFreeTextInput] = useState("");
@@ -521,6 +537,13 @@ function EntryTab({ addTransaction, config, data }) {
   const [simMonto, setSimMonto] = useState("");
   const [simCuotas, setSimCuotas] = useState("");
   const [simTasa, setSimTasa] = useState("0");
+  const [confirmDeleteLoan, setConfirmDeleteLoan] = useState(null);
+  const hiddenLoansArr = (config.hiddenLoans || "").split(",").filter(Boolean);
+
+  function hideLoan(key) {
+    setHiddenLoans([...hiddenLoansArr, key].join(","));
+    setConfirmDeleteLoan(null);
+  }
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
   const geoRef = useRef(null);
@@ -692,23 +715,68 @@ function EntryTab({ addTransaction, config, data }) {
         </div>
       )}
 
-      {step === "sub" && !pendingFreeText && (
+      {step === "sub" && !pendingFreeText && path[0]?.key === "prestamos" && (
         <div className="grid grid-cols-2 gap-3 p-4 overflow-y-auto">
-          {currentSubOptions().map((s) => {
-            const debtInfo = path[0]?.key === "prestamos" ? loanDebtInfo(s.key, data) : null;
-            return (
-              <button
-                key={s.key}
-                onClick={() => pickSub(currentSubOptions(), s, path)}
-                style={{ backgroundColor: rootAccent + "1a", color: rootAccent, borderColor: rootAccent }}
-                className="rounded-2xl p-4 h-auto min-h-24 flex flex-col items-center justify-center gap-1 border-2 active:scale-95 transition-transform"
-              >
-                {s.emoji && <span className="text-2xl">{s.emoji}</span>}
-                <span className="text-sm font-semibold text-center leading-tight">{s.label}</span>
-                {debtInfo && <span className="text-[10px] text-center leading-tight opacity-80 mt-0.5">{debtInfo}</span>}
-              </button>
-            );
-          })}
+          {currentSubOptions()
+            .filter((s) => !hiddenLoansArr.includes(s.key))
+            .map((s) => {
+              const debtInfo = loanDebtInfo(s.key, data);
+              const deletable = ["ubs", "luis_terreno", "procrear", "marcelita_rtrader"].includes(s.key);
+              return (
+                <div
+                  key={s.key}
+                  style={{ backgroundColor: rootAccent + "1a", color: rootAccent, borderColor: rootAccent }}
+                  className="rounded-2xl p-3 h-auto min-h-24 flex flex-col items-center gap-1 border-2"
+                >
+                  <button
+                    onClick={() => pickSub(currentSubOptions(), s, path)}
+                    className="flex flex-col items-center gap-1 w-full active:scale-95 transition-transform"
+                  >
+                    {s.emoji && <span className="text-2xl">{s.emoji}</span>}
+                    <span className="text-sm font-semibold text-center leading-tight">{s.label}</span>
+                    {debtInfo && <span className="text-[10px] text-center leading-tight opacity-80 mt-0.5">{debtInfo}</span>}
+                  </button>
+                  {deletable && (
+                    confirmDeleteLoan === s.key ? (
+                      <div className="flex items-center gap-2 mt-1">
+                        <button
+                          onClick={() => hideLoan(s.key)}
+                          className="text-[10px] font-bold text-white bg-rose-500 rounded-lg px-2 py-1"
+                        >
+                          Confirmar
+                        </button>
+                        <button onClick={() => setConfirmDeleteLoan(null)} className="text-[10px] opacity-70">
+                          Cancelar
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteLoan(s.key)}
+                        className="text-[10px] underline opacity-70 mt-1"
+                      >
+                        🗑 Marcar como pagado
+                      </button>
+                    )
+                  )}
+                </div>
+              );
+            })}
+        </div>
+      )}
+
+      {step === "sub" && !pendingFreeText && path[0]?.key !== "prestamos" && (
+        <div className="grid grid-cols-2 gap-3 p-4 overflow-y-auto">
+          {currentSubOptions().map((s) => (
+            <button
+              key={s.key}
+              onClick={() => pickSub(currentSubOptions(), s, path)}
+              style={{ backgroundColor: rootAccent + "1a", color: rootAccent, borderColor: rootAccent }}
+              className="rounded-2xl p-4 h-auto min-h-24 flex flex-col items-center justify-center gap-1 border-2 active:scale-95 transition-transform"
+            >
+              {s.emoji && <span className="text-2xl">{s.emoji}</span>}
+              <span className="text-sm font-semibold text-center leading-tight">{s.label}</span>
+            </button>
+          ))}
         </div>
       )}
 
@@ -1612,7 +1680,7 @@ function PatrimonioTab({ data, saveAsset, deleteAsset }) {
 function App() {
   const {
     data, ready, saveError, refresh, addTransaction, deleteTransaction, setIncome,
-    setCierreDay, setFxRate, saveAsset, deleteAsset, addSavingsMovement, deleteSavingsMovement,
+    setCierreDay, setFxRate, setHiddenLoans, saveAsset, deleteAsset, addSavingsMovement, deleteSavingsMovement,
   } = useSharedData();
   const [tab, setTab] = useState("entry");
   const [viewCurrency, setViewCurrency] = useState("CHF");
@@ -1664,7 +1732,7 @@ function App() {
         {!ready ? (
           <div className="h-full flex items-center justify-center text-slate-400 text-sm">Cargando…</div>
         ) : tab === "entry" ? (
-          <EntryTab addTransaction={addTransaction} config={data.config} data={data} />
+          <EntryTab addTransaction={addTransaction} config={data.config} data={data} setHiddenLoans={setHiddenLoans} />
         ) : tab === "balance" ? (
           <BalanceTab data={data} currency={viewCurrency} setIncome={setIncome} />
         ) : tab === "proximos" ? (
