@@ -368,7 +368,7 @@ function EntryTab({ addTransaction, config }) {
   const [pendingFreeText, setPendingFreeText] = useState(null);
   const [amount, setAmount] = useState("0");
   const [concept, setConcept] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState(config.lastPaymentMethod || "no_credito");
+  const [paymentMethod, setPaymentMethod] = useState("no_credito");
   const [currency, setCurrency] = useState(config.lastCurrency || "CHF");
   const [dateInput, setDateInput] = useState(toDatetimeLocalValue(new Date()));
   const [editingDate, setEditingDate] = useState(false);
@@ -398,7 +398,7 @@ function EntryTab({ addTransaction, config }) {
     setPendingFreeText(null);
     setDateInput(toDatetimeLocalValue(new Date()));
     setEditingDate(false);
-    // paymentMethod NO se resetea: se mantiene la última usada para agilizar la próxima carga
+    setPaymentMethod("no_credito");
   }
 
   function pickCategory(cat) {
