@@ -935,7 +935,8 @@ function ProximosMesesTab({ data, currency, setIncome, setCierreDay }) {
 
 function HistorialTab({ data, currency, deleteTransaction }) {
   const filteredByCurrency = data.transactions.filter((t) => t.currency === currency);
-  const months = Array.from(new Set(filteredByCurrency.map((t) => monthKey(new Date(t.ts))))).sort().reverse();
+  const effMonth = (t) => t.chargeMonth || monthKey(new Date(t.ts));
+  const months = Array.from(new Set(filteredByCurrency.map(effMonth))).sort().reverse();
   const [filter, setFilter] = useState(months[0] || monthKey(new Date()));
   const [confirmId, setConfirmId] = useState(null);
 
@@ -944,7 +945,7 @@ function HistorialTab({ data, currency, deleteTransaction }) {
   }, [months.join(",")]);
 
   const filtered = filteredByCurrency
-    .filter((t) => monthKey(new Date(t.ts)) === filter)
+    .filter((t) => effMonth(t) === filter)
     .sort((a, b) => new Date(b.ts) - new Date(a.ts));
 
   function exportCSV() {
@@ -1088,7 +1089,7 @@ function HistorialTab({ data, currency, deleteTransaction }) {
 function AhorroTab({ data, addSavingsMovement, deleteSavingsMovement }) {
   const [amount, setAmount] = useState("0");
   const [concept, setConcept] = useState("");
-  const [purposeMode, setPurposeMode] = useState("general"); // general | prestamos | otro
+  const [purposeMode, setPurposeMode] = useState("disponible"); // disponible | reservado
   const [customPurpose, setCustomPurpose] = useState("");
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
@@ -1105,14 +1106,13 @@ function AhorroTab({ data, addSavingsMovement, deleteSavingsMovement }) {
   // Desglose: cuánto está reservado para qué, dentro del acumulado.
   const byPurpose = {};
   data.savings.forEach((m) => {
-    const key = m.purpose || "General (disponible)";
+    const key = m.purpose || "Disponible";
     byPurpose[key] = (byPurpose[key] || 0) + m.amount;
   });
   const purposeRows = Object.entries(byPurpose).sort((a, b) => b[1] - a[1]);
 
   function purposeValue() {
-    if (purposeMode === "prestamos") return "Préstamos";
-    if (purposeMode === "otro") return customPurpose.trim() || null;
+    if (purposeMode === "reservado") return customPurpose.trim() || "Reservado";
     return null;
   }
 
@@ -1131,7 +1131,7 @@ function AhorroTab({ data, addSavingsMovement, deleteSavingsMovement }) {
     setToast("Guardado ✅");
     setAmount("0");
     setConcept("");
-    setPurposeMode("general");
+    setPurposeMode("disponible");
     setCustomPurpose("");
   }
 
@@ -1169,31 +1169,25 @@ function AhorroTab({ data, addSavingsMovement, deleteSavingsMovement }) {
         className="w-full max-w-xs border-2 border-slate-200 rounded-xl px-4 py-3 text-base focus:outline-none focus:border-slate-400"
       />
 
-      <div className="w-full max-w-xs grid grid-cols-3 gap-2">
+      <div className="w-full max-w-xs grid grid-cols-2 gap-2">
         <button
-          onClick={() => setPurposeMode("general")}
-          className={`rounded-xl py-2 text-xs font-semibold ${purposeMode === "general" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500"}`}
+          onClick={() => setPurposeMode("disponible")}
+          className={`rounded-xl py-2.5 text-sm font-semibold ${purposeMode === "disponible" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500"}`}
         >
-          General
+          Disponible
         </button>
         <button
-          onClick={() => setPurposeMode("prestamos")}
-          className={`rounded-xl py-2 text-xs font-semibold ${purposeMode === "prestamos" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500"}`}
+          onClick={() => setPurposeMode("reservado")}
+          className={`rounded-xl py-2.5 text-sm font-semibold ${purposeMode === "reservado" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500"}`}
         >
-          🏦 Préstamos
-        </button>
-        <button
-          onClick={() => setPurposeMode("otro")}
-          className={`rounded-xl py-2 text-xs font-semibold ${purposeMode === "otro" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500"}`}
-        >
-          🎯 Otro fin
+          🎯 Reservado
         </button>
       </div>
-      {purposeMode === "otro" && (
+      {purposeMode === "reservado" && (
         <input
           value={customPurpose}
           onChange={(e) => setCustomPurpose(e.target.value)}
-          placeholder="¿Para qué? (ej: Fondo viaje)"
+          placeholder="¿Para qué? (ej: Préstamos)"
           className="w-full max-w-xs border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-slate-400"
         />
       )}
