@@ -47,6 +47,8 @@ async function apiPost(payload) {
   if (payload.monthKey) params.set("monthKey", payload.monthKey);
   if (payload.amount != null) params.set("amount", payload.amount);
   if (payload.mv) params.set("mv", JSON.stringify(payload.mv));
+  if (payload.key != null) params.set("key", payload.key);
+  if (payload.value != null) params.set("value", payload.value);
   return jsonp(API_URL + "?" + params.toString());
 }
 
@@ -122,6 +124,11 @@ const CATS = [
   {
     key: "varios", label: "Varios", emoji: "🔀",
     color: "#64748b", light: "#f1f5f9", dark: "#1e293b",
+    subs: null,
+  },
+  {
+    key: "ahorro", label: "Ahorro", emoji: "🐷",
+    color: "#16a34a", light: "#dcfce7", dark: "#14532d",
     subs: null,
   },
   {
@@ -709,11 +716,9 @@ function MonthSummary({ mk, ingreso, gasto, onSaveIncome }) {
   );
 }
 
-function BalanceTab({ data, setIncome, setCierreDay }) {
+function BalanceTab({ data, setIncome }) {
   const now = new Date();
   const currentMK = monthKey(now);
-  const [editingCierre, setEditingCierre] = useState(false);
-  const [cierreInput, setCierreInput] = useState(String(data.config.cierreDay));
 
   const monthTx = data.transactions.filter((t) => monthKey(new Date(t.ts)) === currentMK);
   const incomeRec = data.income[currentMK];
@@ -724,18 +729,6 @@ function BalanceTab({ data, setIncome, setCierreDay }) {
   const gasto = data.transactions
     .filter((t) => (t.chargeMonth || monthKey(new Date(t.ts))) === currentMK)
     .reduce((s, t) => s + t.amount, 0);
-
-  // Próximos meses: mismo bloque visual, con "Gastos" = lo ya
-  // comprometido por compras con tarjeta que van a cobrarse ese mes.
-  const upcomingMonths = [1, 2].map((offset) => {
-    const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
-    const mk = monthKey(d);
-    const gastoComprometido = data.transactions
-      .filter((t) => t.chargeMonth === mk)
-      .reduce((s, t) => s + t.amount, 0);
-    const ingresoMes = data.income[mk]?.amount || 0;
-    return { mk, gastoComprometido, ingresoMes };
-  });
 
   const needsReminder = now.getDate() >= 25 && (!incomeRec ||
     new Date(incomeRec.updatedAt).getMonth() !== now.getMonth() ||
@@ -748,13 +741,6 @@ function BalanceTab({ data, setIncome, setCierreDay }) {
   });
   const pieData = Object.values(byCat);
 
-  function saveCierre() {
-    const d = parseInt(cierreInput, 10);
-    if (!d || d < 1 || d > 31) return;
-    setCierreDay(d);
-    setEditingCierre(false);
-  }
-
   return (
     <div className="p-4 flex flex-col gap-4 overflow-y-auto">
       {needsReminder && (
@@ -765,6 +751,61 @@ function BalanceTab({ data, setIncome, setCierreDay }) {
 
       <MonthSummary mk={currentMK} ingreso={ingreso} gasto={gasto} onSaveIncome={setIncome} />
 
+      <div className="bg-white rounded-2xl border border-slate-100 p-4">
+        {pieData.length === 0 ? (
+          <p className="text-center text-slate-400 text-sm py-8">Todavía no hay gastos este mes.</p>
+        ) : (
+          <div className="flex flex-col items-center gap-4">
+            <DonutChart data={pieData} size={200} />
+            <div className="w-full flex flex-col gap-1.5">
+              {pieData
+                .slice()
+                .sort((a, b) => b.value - a.value)
+                .map((d, i) => (
+                  <div key={i} className="flex items-center justify-between text-sm">
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: d.color }} />
+                      <span className="truncate">{d.name}</span>
+                    </span>
+                    <span className="font-semibold text-slate-700 whitespace-nowrap">{fmt(d.value)}</span>
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Pestaña: Próximos meses (gastos ya comprometidos por crédito)       */
+/* ------------------------------------------------------------------ */
+
+function ProximosMesesTab({ data, setIncome, setCierreDay }) {
+  const now = new Date();
+  const [editingCierre, setEditingCierre] = useState(false);
+  const [cierreInput, setCierreInput] = useState(String(data.config.cierreDay));
+
+  const upcomingMonths = [1, 2].map((offset) => {
+    const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+    const mk = monthKey(d);
+    const gastoComprometido = data.transactions
+      .filter((t) => t.chargeMonth === mk)
+      .reduce((s, t) => s + t.amount, 0);
+    const ingresoMes = data.income[mk]?.amount || 0;
+    return { mk, gastoComprometido, ingresoMes };
+  });
+
+  function saveCierre() {
+    const d = parseInt(cierreInput, 10);
+    if (!d || d < 1 || d > 31) return;
+    setCierreDay(d);
+    setEditingCierre(false);
+  }
+
+  return (
+    <div className="p-4 flex flex-col gap-4 overflow-y-auto">
       <div className="flex items-center justify-between text-xs text-slate-400 px-1">
         {!editingCierre ? (
           <button onClick={() => { setCierreInput(String(data.config.cierreDay)); setEditingCierre(true); }} className="underline">
@@ -796,145 +837,6 @@ function BalanceTab({ data, setIncome, setCierreDay }) {
           onSaveIncome={setIncome}
         />
       ))}
-
-      <div className="bg-white rounded-2xl border border-slate-100 p-4">
-        {pieData.length === 0 ? (
-          <p className="text-center text-slate-400 text-sm py-8">Todavía no hay gastos este mes.</p>
-        ) : (
-          <div className="flex flex-col items-center gap-4">
-            <DonutChart data={pieData} size={200} />
-            <div className="w-full flex flex-col gap-1.5">
-              {pieData
-                .slice()
-                .sort((a, b) => b.value - a.value)
-                .map((d, i) => (
-                  <div key={i} className="flex items-center justify-between text-sm">
-                    <span className="flex items-center gap-2 min-w-0">
-                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: d.color }} />
-                      <span className="truncate">{d.name}</span>
-                    </span>
-                    <span className="font-semibold text-slate-700 whitespace-nowrap">{fmt(d.value)}</span>
-                  </div>
-                ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* Pestaña 3: Ahorros                                                    */
-/* ------------------------------------------------------------------ */
-
-function AhorrosTab({ data, addSavingsMovement, deleteSavingsMovement }) {
-  const [sign, setSign] = useState("+");
-  const [amount, setAmount] = useState("0");
-  const [concept, setConcept] = useState("");
-  const [confirmId, setConfirmId] = useState(null);
-
-  const total = data.savings.reduce((s, m) => s + m.amount, 0);
-
-  function registrar() {
-    const n = parseFloat(amount);
-    if (!n || n <= 0) return;
-    addSavingsMovement({
-      id: uid(),
-      ts: new Date().toISOString(),
-      amount: sign === "+" ? n : -n,
-      concept: concept.trim() || null,
-    });
-    setAmount("0");
-    setConcept("");
-  }
-
-  return (
-    <div className="p-4 flex flex-col gap-4 overflow-y-auto h-full">
-      <div className="bg-violet-50 rounded-2xl p-5 text-center">
-        <div className="text-xs text-violet-700 font-medium">Ahorro acumulado</div>
-        <div className="text-3xl font-bold text-violet-800 mt-1">{fmt(total)}</div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          onClick={() => setSign("+")}
-          className={`rounded-2xl py-3 font-bold text-sm ${
-            sign === "+" ? "bg-emerald-500 text-white" : "bg-emerald-50 text-emerald-700"
-          }`}
-        >
-          ➕ Depositar
-        </button>
-        <button
-          onClick={() => setSign("-")}
-          className={`rounded-2xl py-3 font-bold text-sm ${
-            sign === "-" ? "bg-rose-500 text-white" : "bg-rose-50 text-rose-700"
-          }`}
-        >
-          ➖ Retirar
-        </button>
-      </div>
-
-      <div className={`text-3xl font-bold text-center tabular-nums ${sign === "+" ? "text-emerald-600" : "text-rose-600"}`}>
-        {sign}{CURRENCY} {amount}
-      </div>
-
-      <Keypad value={amount} onChange={setAmount} />
-
-      <input
-        value={concept}
-        onChange={(e) => setConcept(e.target.value)}
-        placeholder="Concepto (opcional)"
-        className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-base focus:outline-none focus:border-slate-400"
-      />
-
-      <button
-        onClick={registrar}
-        disabled={!parseFloat(amount)}
-        className={`w-full rounded-2xl py-4 text-white font-bold text-lg disabled:opacity-40 active:scale-95 transition-transform ${
-          sign === "+" ? "bg-emerald-500" : "bg-rose-500"
-        }`}
-      >
-        Registrar movimiento
-      </button>
-
-      <div className="flex flex-col gap-2 mt-2">
-        {data.savings.slice(0, 15).map((m) => {
-          const d = new Date(m.ts);
-          return (
-            <div key={m.id} className="bg-white border border-slate-100 rounded-xl p-2.5 flex items-center gap-3">
-              <div className="flex-1 min-w-0">
-                <div className="text-xs text-slate-500 truncate">
-                  {m.concept ? `${m.concept} · ` : ""}{d.toLocaleDateString("es-AR")}
-                </div>
-              </div>
-              <div className={`text-sm font-bold whitespace-nowrap ${m.amount >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
-                {m.amount >= 0 ? "+" : ""}{fmt(m.amount)}
-              </div>
-              {confirmId === m.id ? (
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  <button
-                    onClick={() => { deleteSavingsMovement(m.id); setConfirmId(null); }}
-                    className="text-xs font-bold text-white bg-rose-500 rounded-lg px-2 py-1.5"
-                  >
-                    Borrar
-                  </button>
-                  <button onClick={() => setConfirmId(null)} className="text-xs text-slate-400 px-1.5">
-                    Cancelar
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setConfirmId(m.id)}
-                  className="text-slate-300 active:text-rose-500 px-1"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }
@@ -1071,7 +973,7 @@ function HistorialTab({ data, deleteTransaction }) {
 function App() {
   const {
     data, ready, saveError, refresh, addTransaction, deleteTransaction, setIncome,
-    addSavingsMovement, deleteSavingsMovement, setCierreDay,
+    setCierreDay,
   } = useSharedData();
   const [tab, setTab] = useState("entry");
 
@@ -1082,7 +984,7 @@ function App() {
   const tabs = [
     { key: "entry", label: "Cargar", emoji: "➕" },
     { key: "balance", label: "Balance mensual", emoji: "📊" },
-    { key: "ahorros", label: "Ahorros", emoji: "🐷" },
+    { key: "proximos", label: "Próximos meses", emoji: "📅" },
     { key: "historial", label: "Historial", emoji: "🧾" },
   ];
 
@@ -1104,9 +1006,9 @@ function App() {
         ) : tab === "entry" ? (
           <EntryTab addTransaction={addTransaction} config={data.config} />
         ) : tab === "balance" ? (
-          <BalanceTab data={data} setIncome={setIncome} setCierreDay={setCierreDay} />
-        ) : tab === "ahorros" ? (
-          <AhorrosTab data={data} addSavingsMovement={addSavingsMovement} deleteSavingsMovement={deleteSavingsMovement} />
+          <BalanceTab data={data} setIncome={setIncome} />
+        ) : tab === "proximos" ? (
+          <ProximosMesesTab data={data} setIncome={setIncome} setCierreDay={setCierreDay} />
         ) : (
           <HistorialTab data={data} deleteTransaction={deleteTransaction} />
         )}
