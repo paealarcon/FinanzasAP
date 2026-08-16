@@ -76,10 +76,42 @@ function buildLoanInstallments() {
   return out;
 }
 
+// Datos fijos de cada préstamo (para mostrar debajo del botón de cada uno en Cargar).
+const LOAN_TERRENO_TOTAL_CUOTAS = 100;
+const LOAN_TERRENO_CUOTAS_RESTANTES = 45; // cuotas 55 a 100
+const LOAN_TERRENO_CUOTA_MENSUAL = 140; // USD
+const LOAN_TERRENO_DEUDA_ACTUAL = 5800; // USD
+
+function loanDebtInfo(subKey, data) {
+  if (subKey === "ubs") {
+    const pagadas = data.transactions.filter((t) => t.categoryKey === "prestamos" && t.subcategory === "UBS").length;
+    const restantes = Math.max(12 - pagadas, 0);
+    const montoRestante = restantes * LOAN_MONTHLY_AMOUNT;
+    return `Restan ${restantes} cuotas de CHF ${LOAN_MONTHLY_AMOUNT.toLocaleString("es-AR")} · Total: CHF ${montoRestante.toLocaleString("es-AR")}`;
+  }
+  if (subKey === "luis_terreno") {
+    return `Deuda: USD ${LOAN_TERRENO_DEUDA_ACTUAL.toLocaleString("es-AR")} · ${LOAN_TERRENO_CUOTAS_RESTANTES} cuotas restantes (55/${LOAN_TERRENO_TOTAL_CUOTAS}) · Cuota: USD ${LOAN_TERRENO_CUOTA_MENSUAL}/mes`;
+  }
+  if (subKey === "marcelita_rtrader") {
+    return `Deuda: CHF 2.000 · Sin intereses ni plazo fijo (familiar)`;
+  }
+  return null;
+}
+
+// Cuota mensual estimada de un préstamo simulado (sistema francés; interés 0 = división simple).
+function calcCuotaSimulada(monto, cuotas, tasaPct) {
+  const P = parseFloat(monto) || 0;
+  const N = parseInt(cuotas, 10) || 0;
+  const r = (parseFloat(tasaPct) || 0) / 100;
+  if (!P || !N) return 0;
+  if (!r) return P / N;
+  return (P * r) / (1 - Math.pow(1 + r, -N));
+}
+
 const CATS = [
   {
-    key: "supermercado", label: "Víveres", emoji: "🛒",
-    color: "#10b981", light: "#d1fae5", dark: "#065f46",
+    key: "supermercado", label: "Víveres", emoji: "🛒", icon: "icon-viveres.png",
+    color: "#4a7c59", light: "#e2ede1", dark: "#234229",
     subs: [
       { key: "supermercado", label: "Supermercado" },
       { key: "kiosko", label: "Kiosko" },
@@ -87,8 +119,8 @@ const CATS = [
     ],
   },
   {
-    key: "alquiler", label: "Gastos fijos", emoji: "🏠🚆",
-    color: "#0ea5e9", light: "#e0f2fe", dark: "#075985",
+    key: "alquiler", label: "Gastos fijos", emoji: "🏠🚆", icon: "icon-gastosfijos.png",
+    color: "#e0a238", light: "#fdf1dc", dark: "#7a4e08",
     subs: [
       { key: "alquiler", label: "Alquiler" },
       { key: "electricidad", label: "Electricidad" },
@@ -100,8 +132,8 @@ const CATS = [
     ],
   },
   {
-    key: "salud", label: "Salud", emoji: "🌿",
-    color: "#ffffff", light: "#f0fdf4", dark: "#166534",
+    key: "salud", label: "Salud", emoji: "🌿", icon: "icon-salud.png",
+    color: "#8ca86b", light: "#eef3e6", dark: "#435330",
     subs: [
       { key: "farmacia", label: "Farmacia" },
       { key: "seguro_salud", label: "Seguro de salud" },
@@ -109,34 +141,34 @@ const CATS = [
     ],
   },
   {
-    key: "prestamos", label: "Préstamos", emoji: "💸",
-    color: "#f59e0b", light: "#fef3c7", dark: "#92400e",
+    key: "prestamos", label: "Préstamos", emoji: "💸", icon: "icon-prestamos.png",
+    color: "#c17817", light: "#fbe8cc", dark: "#6b3f0a",
     subs: [
       { key: "ubs", label: "UBS", subs: buildLoanInstallments() },
       { key: "luis_terreno", label: "Luis-Terreno", freeText: true },
       { key: "procrear", label: "Procrear", freeText: true },
       { key: "marcelita_rtrader", label: "Marcelita Ferro y RTrader", freeText: true },
-      { key: "otro", label: "Otro", freeText: true },
+      { key: "otro", label: "Otro", loanSimulator: true },
     ],
   },
   {
-    key: "casa", label: "Casa", emoji: "🛋️",
-    color: "#8b5cf6", light: "#ede9fe", dark: "#5b21b6",
+    key: "casa", label: "Casa", emoji: "🛋️", icon: "icon-casa.png",
+    color: "#d9ac5c", light: "#faf0dc", dark: "#6b4d16",
     subs: null, conceptPlaceholder: "Ej: mueble, arreglo, decoración",
   },
   {
-    key: "ropa", label: "Ropa", emoji: "👗",
-    color: "#d946ef", light: "#fae8ff", dark: "#86198f",
+    key: "ropa", label: "Ropa", emoji: "👗👔", icon: "icon-ropa.png",
+    color: "#bf7e5c", light: "#f8e9e0", dark: "#6b3a22",
     subs: null, conceptPlaceholder: "Ej: zapatillas, campera, ropa interior",
   },
   {
-    key: "varios", label: "Varios", emoji: "🔀",
-    color: "#64748b", light: "#f1f5f9", dark: "#1e293b",
+    key: "varios", label: "Varios", emoji: "🔀", icon: "icon-varios.png",
+    color: "#8a7150", light: "#efe8dd", dark: "#453824",
     subs: null,
   },
   {
-    key: "viajes", label: "Viajes", emoji: "✈️",
-    color: "#06b6d4", light: "#cffafe", dark: "#155e75",
+    key: "viajes", label: "Viajes", emoji: "✈️", icon: "icon-viajes.png",
+    color: "#35543a", light: "#dde8dc", dark: "#1c2e1e",
     subs: [
       {
         key: "grecia", label: "Grecia", emoji: "🇬🇷",
@@ -380,15 +412,18 @@ function FinancialHealthPanel({ data }) {
   const currency = "CHF"; // gasto diario de referencia
   const now = new Date();
   const effMonth = (t) => t.chargeMonth || monthKey(new Date(t.ts));
+  const FIXED_CAT_KEYS = ["supermercado", "salud", "prestamos"]; // Víveres, Salud, Préstamos
 
   const monthsData = [0, 1, 2].map((offset) => {
     const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
     const mk = monthKey(d);
-    const gasto = data.transactions
-      .filter((t) => t.currency === currency && effMonth(t) === mk)
+    const monthTx = data.transactions.filter((t) => t.currency === currency && effMonth(t) === mk);
+    const gasto = monthTx.reduce((s, t) => s + t.amount, 0);
+    const gastoFijo = monthTx
+      .filter((t) => FIXED_CAT_KEYS.includes(t.categoryKey))
       .reduce((s, t) => s + t.amount, 0);
     const ingreso = data.income[`${mk}:${currency}`]?.amount || 0;
-    return { mk, ingreso, gasto, saldo: ingreso - gasto };
+    return { mk, ingreso, gasto, gastoFijo, saldo: ingreso - gasto };
   });
 
   const disponible = data.savings.filter((m) => !m.purpose).reduce((s, m) => s + m.amount, 0);
@@ -404,7 +439,7 @@ function FinancialHealthPanel({ data }) {
     status = { emoji: "🔴", bg: "bg-rose-50", text: "text-rose-700", label: "Atención: el ahorro disponible no alcanza para cubrir el mes más ajustado." };
   }
 
-  const maxVal = Math.max(1, ...monthsData.flatMap((m) => [m.ingreso, m.gasto]));
+  const maxVal = Math.max(1, ...monthsData.flatMap((m) => [m.ingreso, m.gasto, m.gastoFijo]));
 
   return (
     <div className="mx-4 mb-4 bg-white rounded-2xl border border-slate-100 p-4 flex flex-col gap-3">
@@ -427,11 +462,15 @@ function FinancialHealthPanel({ data }) {
             <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
               <div className="h-full bg-rose-400" style={{ width: `${(m.gasto / maxVal) * 100}%` }} />
             </div>
+            <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+              <div className="h-full bg-indigo-400" style={{ width: `${(m.gastoFijo / maxVal) * 100}%` }} />
+            </div>
           </div>
         ))}
-        <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-0.5">
+        <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-0.5 flex-wrap">
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400" /> Ingreso</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-400" /> Gasto comprometido</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-400" /> Gastos fijos</span>
         </div>
       </div>
 
@@ -460,6 +499,9 @@ function EntryTab({ addTransaction, config, data }) {
   const [currency, setCurrency] = useState(config.lastCurrency || "CHF");
   const [dateInput, setDateInput] = useState(toDatetimeLocalValue(new Date()));
   const [editingDate, setEditingDate] = useState(false);
+  const [simMonto, setSimMonto] = useState("");
+  const [simCuotas, setSimCuotas] = useState("");
+  const [simTasa, setSimTasa] = useState("0");
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
   const geoRef = useRef(null);
@@ -487,6 +529,9 @@ function EntryTab({ addTransaction, config, data }) {
     setDateInput(toDatetimeLocalValue(new Date()));
     setEditingDate(false);
     setPaymentMethod("no_credito");
+    setSimMonto("");
+    setSimCuotas("");
+    setSimTasa("0");
   }
 
   function pickCategory(cat) {
@@ -510,6 +555,11 @@ function EntryTab({ addTransaction, config, data }) {
 
   function pickSub(list, sub, parentPath) {
     const node = { level: "sub", key: sub.key, label: sub.label, emoji: sub.emoji, color: parentPath[0].color };
+    if (sub.loanSimulator) {
+      setPath([...parentPath, node]);
+      setStep("simulator");
+      return;
+    }
     if (sub.freeText) {
       setPendingFreeText({ parent: [...parentPath, node] });
       setPath([...parentPath, node]);
@@ -608,7 +658,11 @@ function EntryTab({ addTransaction, config, data }) {
                   }}
                   className="rounded-3xl p-4 h-28 flex flex-col items-center justify-center gap-1 shadow-sm active:scale-95 transition-transform"
                 >
-                  <span className="text-3xl">{c.emoji}</span>
+                  {c.icon ? (
+                    <img src={c.icon} alt="" className="w-12 h-12 object-contain rounded-lg bg-white/70" />
+                  ) : (
+                    <span className="text-3xl">{c.emoji}</span>
+                  )}
                   <span className="text-sm font-semibold text-center leading-tight">{c.label}</span>
                 </button>
               );
@@ -620,17 +674,21 @@ function EntryTab({ addTransaction, config, data }) {
 
       {step === "sub" && !pendingFreeText && (
         <div className="grid grid-cols-2 gap-3 p-4 overflow-y-auto">
-          {currentSubOptions().map((s) => (
-            <button
-              key={s.key}
-              onClick={() => pickSub(currentSubOptions(), s, path)}
-              style={{ backgroundColor: rootAccent + "1a", color: rootAccent, borderColor: rootAccent }}
-              className="rounded-2xl p-4 h-24 flex flex-col items-center justify-center gap-1 border-2 active:scale-95 transition-transform"
-            >
-              {s.emoji && <span className="text-2xl">{s.emoji}</span>}
-              <span className="text-sm font-semibold text-center leading-tight">{s.label}</span>
-            </button>
-          ))}
+          {currentSubOptions().map((s) => {
+            const debtInfo = path[0]?.key === "prestamos" ? loanDebtInfo(s.key, data) : null;
+            return (
+              <button
+                key={s.key}
+                onClick={() => pickSub(currentSubOptions(), s, path)}
+                style={{ backgroundColor: rootAccent + "1a", color: rootAccent, borderColor: rootAccent }}
+                className="rounded-2xl p-4 h-auto min-h-24 flex flex-col items-center justify-center gap-1 border-2 active:scale-95 transition-transform"
+              >
+                {s.emoji && <span className="text-2xl">{s.emoji}</span>}
+                <span className="text-sm font-semibold text-center leading-tight">{s.label}</span>
+                {debtInfo && <span className="text-[10px] text-center leading-tight opacity-80 mt-0.5">{debtInfo}</span>}
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -651,6 +709,60 @@ function EntryTab({ addTransaction, config, data }) {
             className="rounded-xl py-3 text-white font-semibold disabled:opacity-40"
           >
             Continuar
+          </button>
+        </div>
+      )}
+
+      {step === "simulator" && (
+        <div className="flex flex-col gap-4 p-6 overflow-y-auto">
+          <p className="text-slate-700 text-sm font-semibold">🧮 Simulador de préstamo</p>
+          <div>
+            <label className="text-xs text-slate-500">Monto del préstamo</label>
+            <input
+              type="number"
+              value={simMonto}
+              onChange={(e) => setSimMonto(e.target.value)}
+              placeholder="Ej: 5000"
+              className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-lg focus:outline-none focus:border-slate-400"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500">Número de cuotas</label>
+            <input
+              type="number"
+              value={simCuotas}
+              onChange={(e) => setSimCuotas(e.target.value)}
+              placeholder="Ej: 12"
+              className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-lg focus:outline-none focus:border-slate-400"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500">Interés mensual % (opcional, 0 si no aplica)</label>
+            <input
+              type="number"
+              value={simTasa}
+              onChange={(e) => setSimTasa(e.target.value)}
+              className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-lg focus:outline-none focus:border-slate-400"
+            />
+          </div>
+          <div className="bg-slate-50 rounded-2xl p-4 text-center">
+            <div className="text-xs text-slate-500">Cuota mensual estimada</div>
+            <div className="text-2xl font-bold text-slate-800">
+              {currency} {calcCuotaSimulada(simMonto, simCuotas, simTasa).toLocaleString("es-AR", { maximumFractionDigits: 2 })}
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              const cuota = calcCuotaSimulada(simMonto, simCuotas, simTasa);
+              setAmount(String(Math.round(cuota * 100) / 100));
+              setConcept(`Simulación: ${simMonto} en ${simCuotas} cuotas${parseFloat(simTasa) ? ` al ${simTasa}%` : ""}`);
+              setStep("amount");
+            }}
+            disabled={!parseFloat(simMonto) || !parseInt(simCuotas, 10)}
+            style={{ backgroundColor: rootAccent }}
+            className="rounded-xl py-3 text-white font-semibold disabled:opacity-40"
+          >
+            Usar esta cuota
           </button>
         </div>
       )}
@@ -1015,15 +1127,12 @@ function ProximosMesesTab({ data, currency, setIncome, setCierreDay }) {
 /* ------------------------------------------------------------------ */
 
 function HistorialTab({ data, currency, deleteTransaction }) {
+  const currentMK = monthKey(new Date());
   const filteredByCurrency = data.transactions.filter((t) => t.currency === currency);
   const effMonth = (t) => t.chargeMonth || monthKey(new Date(t.ts));
-  const months = Array.from(new Set(filteredByCurrency.map(effMonth))).sort().reverse();
-  const [filter, setFilter] = useState(months[0] || monthKey(new Date()));
+  const months = Array.from(new Set([currentMK, ...filteredByCurrency.map(effMonth)])).sort().reverse();
+  const [filter, setFilter] = useState(currentMK);
   const [confirmId, setConfirmId] = useState(null);
-
-  useEffect(() => {
-    if (months.length && !months.includes(filter)) setFilter(months[0]);
-  }, [months.join(",")]);
 
   const filtered = filteredByCurrency
     .filter((t) => effMonth(t) === filter)
@@ -1225,6 +1334,7 @@ function AhorroTab({ data, addSavingsMovement, deleteSavingsMovement }) {
       )}
 
       <div className="bg-emerald-50 rounded-2xl px-6 py-3 text-center w-full max-w-xs">
+        <img src="icon-ahorro.png" alt="" className="w-16 h-16 object-contain mx-auto mb-1" />
         <div className="text-xs text-emerald-700 font-medium">Ahorro acumulado</div>
         <div className="text-2xl font-bold text-emerald-800">{fmt(total)}</div>
         {purposeRows.length > 0 && (
@@ -1495,7 +1605,7 @@ function App() {
     { key: "entry", label: "Cargar", emoji: "➕" },
     { key: "balance", label: "Balance mensual", emoji: "📊" },
     { key: "proximos", label: "Próximos meses", emoji: "📅" },
-    { key: "ahorro", label: "Ahorro", emoji: "🐷" },
+    { key: "ahorro", label: "Ahorro", emoji: "🐷", icon: "icon-ahorro.png" },
     { key: "patrimonio", label: "Patrimonio", emoji: "🏛️" },
     { key: "historial", label: "Historial", emoji: "🧾" },
   ];
@@ -1557,7 +1667,11 @@ function App() {
               tab === t.key ? "text-slate-900" : "text-slate-400"
             }`}
           >
-            <span className="text-base">{t.emoji}</span>
+            {t.icon ? (
+              <img src={t.icon} alt="" className="w-5 h-5 object-contain rounded" />
+            ) : (
+              <span className="text-base">{t.emoji}</span>
+            )}
             {t.label}
           </button>
         ))}
