@@ -24,7 +24,7 @@
   html, body { height: 100%; margin: 0; background: #0f172a; }
   #root { height: 100%; }
   .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
-  .pt-safe { padding-top: env(safe-area-inset-top); }
+  .pt-safe { padding-top: max(env(safe-area-inset-top), 48px); }
 </style>
 <script>
   window.addEventListener('error', function (e) {
