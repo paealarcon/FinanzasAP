@@ -937,7 +937,7 @@ function App() {
 
   return (
     <div className="w-full h-[100dvh] bg-slate-50 flex flex-col overflow-hidden">
-      <div className="bg-slate-900 text-white px-4 py-3 flex items-center justify-between">
+      <div className="bg-slate-900 text-white px-4 py-3 flex items-center justify-between pt-safe">
         <span className="font-bold">FinanzasAP</span>
         <div className="flex items-center gap-3">
           {saveError && <span className="text-[10px] text-amber-300">⚠ sin conexión al Sheet</span>}
