@@ -225,6 +225,13 @@ function fmt(n, currency) {
 function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
+function hexToRgba(hex, alpha) {
+  const h = hex.replace("#", "");
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 function getLocation(timeoutMs = 4000) {
   return new Promise((resolve) => {
     if (!("geolocation" in navigator)) return resolve(null);
@@ -419,11 +426,17 @@ function FinancialHealthPanel({ data }) {
     const mk = monthKey(d);
     const monthTx = data.transactions.filter((t) => t.currency === currency && effMonth(t) === mk);
     const gasto = monthTx.reduce((s, t) => s + t.amount, 0);
-    const gastoFijo = monthTx
+    const gastoFijoReal = monthTx
       .filter((t) => FIXED_CAT_KEYS.includes(t.categoryKey))
       .reduce((s, t) => s + t.amount, 0);
     const ingreso = data.income[`${mk}:${currency}`]?.amount || 0;
-    return { mk, ingreso, gasto, gastoFijo, saldo: ingreso - gasto };
+    return { mk, ingreso, gasto, gastoFijoReal, saldo: ingreso - gasto };
+  });
+  // Meses futuros (2do, 3ro...): el gasto fijo todavía no está cargado, así que
+  // se estima igual al del mes en curso (1ro de la serie) en vez de mostrar ~0.
+  monthsData.forEach((m, i) => {
+    m.gastoFijo = i === 0 ? m.gastoFijoReal : monthsData[0].gastoFijoReal;
+    m.gastoFijoEstimado = i > 0;
   });
 
   const disponible = data.savings.filter((m) => !m.purpose).reduce((s, m) => s + m.amount, 0);
@@ -463,14 +476,20 @@ function FinancialHealthPanel({ data }) {
               <div className="h-full bg-rose-400" style={{ width: `${(m.gasto / maxVal) * 100}%` }} />
             </div>
             <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-              <div className="h-full bg-indigo-400" style={{ width: `${(m.gastoFijo / maxVal) * 100}%` }} />
+              <div
+                className="h-full bg-indigo-400"
+                style={{
+                  width: `${(m.gastoFijo / maxVal) * 100}%`,
+                  opacity: m.gastoFijoEstimado ? 0.55 : 1,
+                }}
+              />
             </div>
           </div>
         ))}
         <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-0.5 flex-wrap">
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400" /> Ingreso</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-400" /> Gasto comprometido</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-400" /> Gastos fijos</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-400" /> Gastos fijos (mate = estimado)</span>
         </div>
       </div>
 
@@ -646,24 +665,25 @@ function EntryTab({ addTransaction, config, data }) {
         <div className="overflow-y-auto flex-1">
           <div className="grid grid-cols-2 gap-3 p-4">
             {CATS.map((c) => {
-              const isLight = c.color === "#ffffff";
               return (
                 <button
                   key={c.key}
                   onClick={() => pickCategory(c)}
                   style={{
-                    backgroundColor: c.color,
-                    color: isLight ? c.dark : "#ffffff",
-                    border: isLight ? `2px solid ${c.dark}22` : "none",
+                    backgroundColor: hexToRgba(c.color, 0.5),
+                    border: `2px solid ${c.color}`,
+                    color: c.dark,
                   }}
-                  className="rounded-3xl p-4 h-28 flex flex-col items-center justify-center gap-1 shadow-sm active:scale-95 transition-transform"
+                  className="rounded-3xl px-2 pt-2 pb-2 h-36 flex flex-col items-center shadow-sm active:scale-95 transition-transform overflow-hidden"
                 >
-                  {c.icon ? (
-                    <img src={c.icon} alt="" className="w-12 h-12 object-contain rounded-lg bg-white/70" />
-                  ) : (
-                    <span className="text-3xl">{c.emoji}</span>
-                  )}
-                  <span className="text-sm font-semibold text-center leading-tight">{c.label}</span>
+                  <div className="flex-1 w-full min-h-0 flex items-center justify-center">
+                    {c.icon ? (
+                      <img src={c.icon} alt="" className="max-h-full max-w-full object-contain" />
+                    ) : (
+                      <span className="text-4xl">{c.emoji}</span>
+                    )}
+                  </div>
+                  <span className="text-sm font-semibold text-center leading-tight pb-1">{c.label}</span>
                 </button>
               );
             })}
