@@ -160,6 +160,16 @@ const CURRENCY = "CHF";
 function monthKey(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+function toDatetimeLocalValue(d) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+function formatDateShort(d) {
+  return d.toLocaleDateString("es-AR", { day: "2-digit", month: "short" }) + ", " +
+    d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+}
 function monthLabel(mk) {
   const [y, m] = mk.split("-").map(Number);
   const d = new Date(y, m - 1, 1);
@@ -328,6 +338,8 @@ function EntryTab({ addTransaction, config }) {
   const [amount, setAmount] = useState("0");
   const [concept, setConcept] = useState("");
   const [paymentMethod, setPaymentMethod] = useState(config.lastPaymentMethod || "no_credito");
+  const [dateInput, setDateInput] = useState(toDatetimeLocalValue(new Date()));
+  const [editingDate, setEditingDate] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
   const geoRef = useRef(null);
@@ -352,6 +364,8 @@ function EntryTab({ addTransaction, config }) {
     setConcept("");
     setFreeTextInput("");
     setPendingFreeText(null);
+    setDateInput(toDatetimeLocalValue(new Date()));
+    setEditingDate(false);
     // paymentMethod NO se resetea: se mantiene la última usada para agilizar la próxima carga
   }
 
@@ -417,7 +431,7 @@ function EntryTab({ addTransaction, config }) {
     if (!num || num <= 0) return;
     setSaving(true);
     const loc = geoRef.current || (await getLocation());
-    const now = new Date();
+    const now = new Date(dateInput);
     const tx = {
       id: uid(),
       ts: now.toISOString(),
@@ -529,6 +543,26 @@ function EntryTab({ addTransaction, config }) {
             placeholder={path[0]?.conceptPlaceholder || "Concepto (opcional)"}
             className="w-full max-w-xs border-2 border-slate-200 rounded-xl px-4 py-3 text-base focus:outline-none focus:border-slate-400"
           />
+          {!editingDate ? (
+            <button
+              onClick={() => setEditingDate(true)}
+              className="w-full max-w-xs text-sm text-slate-500 underline text-center"
+            >
+              📅 {formatDateShort(new Date(dateInput))}
+            </button>
+          ) : (
+            <div className="w-full max-w-xs flex items-center gap-2">
+              <input
+                type="datetime-local"
+                value={dateInput}
+                onChange={(e) => setDateInput(e.target.value)}
+                className="flex-1 border-2 border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-slate-400"
+              />
+              <button onClick={() => setEditingDate(false)} className="text-emerald-600 text-sm font-semibold whitespace-nowrap">
+                Listo
+              </button>
+            </div>
+          )}
           <div className="w-full max-w-xs grid grid-cols-2 gap-2">
             <button
               onClick={() => setPaymentMethod("no_credito")}
