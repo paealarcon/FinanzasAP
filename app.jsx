@@ -45,10 +45,12 @@ async function apiPost(payload) {
   if (payload.tx) params.set("tx", JSON.stringify(payload.tx));
   if (payload.id != null) params.set("id", payload.id);
   if (payload.monthKey) params.set("monthKey", payload.monthKey);
+  if (payload.currency) params.set("currency", payload.currency);
   if (payload.amount != null) params.set("amount", payload.amount);
   if (payload.mv) params.set("mv", JSON.stringify(payload.mv));
   if (payload.key != null) params.set("key", payload.key);
   if (payload.value != null) params.set("value", payload.value);
+  if (payload.asset) params.set("asset", JSON.stringify(payload.asset));
   return jsonp(API_URL + "?" + params.toString());
 }
 
@@ -182,8 +184,8 @@ function monthLabel(mk) {
   const d = new Date(y, m - 1, 1);
   return d.toLocaleDateString("es-AR", { month: "long", year: "numeric" });
 }
-function fmt(n) {
-  return `${CURRENCY} ${Number(n || 0).toLocaleString("es-AR", {
+function fmt(n, currency) {
+  return `${currency || CURRENCY} ${Number(n || 0).toLocaleString("es-AR", {
     minimumFractionDigits: 2, maximumFractionDigits: 2,
   })}`;
 }
@@ -225,25 +227,30 @@ function computeChargeMonth(date, paymentMethod, cierreDay) {
 /* ------------------------------------------------------------------ */
 
 function useSharedData() {
-  const DEFAULT_CONFIG = { cierreDay: 15, lastPaymentMethod: "no_credito" };
-  const [data, setData] = useState({ transactions: [], income: {}, savings: [], config: DEFAULT_CONFIG });
+  const DEFAULT_CONFIG = { cierreDay: 15, lastPaymentMethod: "no_credito", lastCurrency: "CHF", fxRate: "" };
+  const [data, setData] = useState({ transactions: [], income: {}, savings: [], assets: [], config: DEFAULT_CONFIG });
   const [ready, setReady] = useState(false);
   const [saveError, setSaveError] = useState(false);
+
+  const applyFresh = useCallback((fresh) => {
+    setData({
+      transactions: fresh.transactions || [],
+      income: fresh.income || {},
+      savings: fresh.savings || [],
+      assets: fresh.assets || [],
+      config: { ...DEFAULT_CONFIG, ...(fresh.config || {}) },
+    });
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
       const fresh = await apiGet();
-      setData({
-        transactions: fresh.transactions || [],
-        income: fresh.income || {},
-        savings: fresh.savings || [],
-        config: { ...DEFAULT_CONFIG, ...(fresh.config || {}) },
-      });
+      applyFresh(fresh);
       setSaveError(false);
     } catch (e) {
       setSaveError(true);
     }
-  }, []);
+  }, [applyFresh]);
 
   useEffect(() => {
     refresh().finally(() => setReady(true));
@@ -252,22 +259,17 @@ function useSharedData() {
   const mutate = useCallback((payload) => {
     apiPost(payload)
       .then((fresh) => {
-        setData({
-          transactions: fresh.transactions || [],
-          income: fresh.income || {},
-          savings: fresh.savings || [],
-          config: { ...DEFAULT_CONFIG, ...(fresh.config || {}) },
-        });
+        applyFresh(fresh);
         setSaveError(false);
       })
       .catch(() => setSaveError(true));
-  }, []);
+  }, [applyFresh]);
 
   const addTransaction = useCallback((tx) => {
     setData((prev) => ({
       ...prev,
       transactions: [tx, ...prev.transactions],
-      config: { ...prev.config, lastPaymentMethod: tx.paymentMethod },
+      config: { ...prev.config, lastPaymentMethod: tx.paymentMethod, lastCurrency: tx.currency },
     })); // optimista
     mutate({ action: "addTransaction", tx });
   }, [mutate]);
@@ -277,12 +279,13 @@ function useSharedData() {
     mutate({ action: "deleteTransaction", id });
   }, [mutate]);
 
-  const setIncome = useCallback((mk, amount) => {
+  const setIncome = useCallback((mk, currency, amount) => {
+    const incomeKey = `${mk}:${currency}`;
     setData((prev) => ({
       ...prev,
-      income: { ...prev.income, [mk]: { amount, updatedAt: new Date().toISOString() } },
+      income: { ...prev.income, [incomeKey]: { amount, updatedAt: new Date().toISOString() } },
     }));
-    mutate({ action: "setIncome", monthKey: mk, amount });
+    mutate({ action: "setIncome", monthKey: mk, currency, amount });
   }, [mutate]);
 
   const addSavingsMovement = useCallback((mv) => {
@@ -300,9 +303,30 @@ function useSharedData() {
     mutate({ action: "setConfig", key: "cierreDay", value: day });
   }, [mutate]);
 
+  const setFxRate = useCallback((rate) => {
+    setData((prev) => ({ ...prev, config: { ...prev.config, fxRate: rate } }));
+    mutate({ action: "setConfig", key: "fxRate", value: rate });
+  }, [mutate]);
+
+  const saveAsset = useCallback((asset) => {
+    setData((prev) => {
+      const exists = prev.assets.some((a) => a.id === asset.id);
+      const assets = exists
+        ? prev.assets.map((a) => (a.id === asset.id ? asset : a))
+        : [asset, ...prev.assets];
+      return { ...prev, assets };
+    });
+    mutate({ action: "saveAsset", asset });
+  }, [mutate]);
+
+  const deleteAsset = useCallback((id) => {
+    setData((prev) => ({ ...prev, assets: prev.assets.filter((a) => a.id !== id) }));
+    mutate({ action: "deleteAsset", id });
+  }, [mutate]);
+
   return {
     data, ready, saveError, refresh, addTransaction, deleteTransaction, setIncome,
-    addSavingsMovement, deleteSavingsMovement, setCierreDay,
+    addSavingsMovement, deleteSavingsMovement, setCierreDay, setFxRate, saveAsset, deleteAsset,
   };
 }
 
@@ -345,6 +369,7 @@ function EntryTab({ addTransaction, config }) {
   const [amount, setAmount] = useState("0");
   const [concept, setConcept] = useState("");
   const [paymentMethod, setPaymentMethod] = useState(config.lastPaymentMethod || "no_credito");
+  const [currency, setCurrency] = useState(config.lastCurrency || "CHF");
   const [dateInput, setDateInput] = useState(toDatetimeLocalValue(new Date()));
   const [editingDate, setEditingDate] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -453,6 +478,7 @@ function EntryTab({ addTransaction, config }) {
       lng: loc?.lng ?? null,
       paymentMethod,
       chargeMonth: computeChargeMonth(now, paymentMethod, config.cierreDay),
+      currency,
     };
     addTransaction(tx);
     setSaving(false);
@@ -540,8 +566,26 @@ function EntryTab({ addTransaction, config }) {
 
       {step === "amount" && (
         <div className="flex flex-col items-center gap-6 p-6 flex-1 overflow-y-auto">
+          <div className="w-full max-w-xs grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setCurrency("CHF")}
+              className={`rounded-xl py-2 text-sm font-semibold ${
+                currency === "CHF" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500"
+              }`}
+            >
+              🇨🇭 CHF
+            </button>
+            <button
+              onClick={() => setCurrency("ARS")}
+              className={`rounded-xl py-2 text-sm font-semibold ${
+                currency === "ARS" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500"
+              }`}
+            >
+              🇦🇷 ARS
+            </button>
+          </div>
           <div className="text-4xl font-bold tabular-nums" style={{ color: rootAccent }}>
-            {CURRENCY} {amount}
+            {currency} {amount}
           </div>
           <Keypad value={amount} onChange={setAmount} />
           <input
@@ -652,7 +696,7 @@ function DonutChart({ data, size = 200 }) {
 /* Bloque de un mes: ingresos (tocable) / gastos / saldo               */
 /* ------------------------------------------------------------------ */
 
-function MonthSummary({ mk, ingreso, gasto, onSaveIncome }) {
+function MonthSummary({ mk, currency, ingreso, gasto, onSaveIncome }) {
   const [editing, setEditing] = useState(false);
   const [amount, setAmount] = useState(String(ingreso || 0));
   const saldo = ingreso - gasto;
@@ -664,7 +708,7 @@ function MonthSummary({ mk, ingreso, gasto, onSaveIncome }) {
   function save() {
     const n = parseFloat(amount);
     if (!n || n <= 0) return;
-    onSaveIncome(mk, n);
+    onSaveIncome(mk, currency, n);
     setEditing(false);
   }
 
@@ -678,21 +722,21 @@ function MonthSummary({ mk, ingreso, gasto, onSaveIncome }) {
             className="bg-emerald-50 rounded-2xl p-3 text-center active:bg-emerald-100"
           >
             <div className="text-xs text-emerald-700 font-medium">Ingresos</div>
-            <div className="text-sm font-bold text-emerald-800">{fmt(ingreso)}</div>
+            <div className="text-sm font-bold text-emerald-800">{fmt(ingreso, currency)}</div>
           </button>
           <div className="bg-rose-50 rounded-2xl p-3 text-center">
             <div className="text-xs text-rose-700 font-medium">Gastos</div>
-            <div className="text-sm font-bold text-rose-800">{fmt(gasto)}</div>
+            <div className="text-sm font-bold text-rose-800">{fmt(gasto, currency)}</div>
           </div>
           <div className={`rounded-2xl p-3 text-center ${saldo >= 0 ? "bg-sky-50" : "bg-orange-50"}`}>
             <div className={`text-xs font-medium ${saldo >= 0 ? "text-sky-700" : "text-orange-700"}`}>Saldo</div>
-            <div className={`text-sm font-bold ${saldo >= 0 ? "text-sky-800" : "text-orange-800"}`}>{fmt(saldo)}</div>
+            <div className={`text-sm font-bold ${saldo >= 0 ? "text-sky-800" : "text-orange-800"}`}>{fmt(saldo, currency)}</div>
           </div>
         </div>
       ) : (
         <div className="flex flex-col items-center gap-3 bg-slate-50 rounded-2xl p-4">
           <div className="text-2xl font-bold tabular-nums text-emerald-700">
-            {CURRENCY} {amount}
+            {currency} {amount}
           </div>
           <Keypad value={amount} onChange={setAmount} />
           <div className="grid grid-cols-2 gap-2 w-full max-w-xs">
@@ -716,18 +760,18 @@ function MonthSummary({ mk, ingreso, gasto, onSaveIncome }) {
   );
 }
 
-function BalanceTab({ data, setIncome }) {
+function BalanceTab({ data, currency, setIncome }) {
   const now = new Date();
   const currentMK = monthKey(now);
 
-  const monthTx = data.transactions.filter((t) => monthKey(new Date(t.ts)) === currentMK);
-  const incomeRec = data.income[currentMK];
+  const monthTx = data.transactions.filter((t) => monthKey(new Date(t.ts)) === currentMK && t.currency === currency);
+  const incomeRec = data.income[`${currentMK}:${currency}`];
   const ingreso = incomeRec?.amount || 0;
 
   // "Gastos" del mes actual = lo que realmente sale de la cuenta este mes:
   // no-crédito de este mes + crédito de compras anteriores que vence ahora.
   const gasto = data.transactions
-    .filter((t) => (t.chargeMonth || monthKey(new Date(t.ts))) === currentMK)
+    .filter((t) => t.currency === currency && (t.chargeMonth || monthKey(new Date(t.ts))) === currentMK)
     .reduce((s, t) => s + t.amount, 0);
 
   const needsReminder = now.getDate() >= 25 && (!incomeRec ||
@@ -749,7 +793,7 @@ function BalanceTab({ data, setIncome }) {
         </div>
       )}
 
-      <MonthSummary mk={currentMK} ingreso={ingreso} gasto={gasto} onSaveIncome={setIncome} />
+      <MonthSummary mk={currentMK} currency={currency} ingreso={ingreso} gasto={gasto} onSaveIncome={setIncome} />
 
       <div className="bg-white rounded-2xl border border-slate-100 p-4">
         {pieData.length === 0 ? (
@@ -767,7 +811,7 @@ function BalanceTab({ data, setIncome }) {
                       <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: d.color }} />
                       <span className="truncate">{d.name}</span>
                     </span>
-                    <span className="font-semibold text-slate-700 whitespace-nowrap">{fmt(d.value)}</span>
+                    <span className="font-semibold text-slate-700 whitespace-nowrap">{fmt(d.value, currency)}</span>
                   </div>
                 ))}
             </div>
@@ -782,7 +826,7 @@ function BalanceTab({ data, setIncome }) {
 /* Pestaña: Próximos meses (gastos ya comprometidos por crédito)       */
 /* ------------------------------------------------------------------ */
 
-function ProximosMesesTab({ data, setIncome, setCierreDay }) {
+function ProximosMesesTab({ data, currency, setIncome, setCierreDay }) {
   const now = new Date();
   const [editingCierre, setEditingCierre] = useState(false);
   const [cierreInput, setCierreInput] = useState(String(data.config.cierreDay));
@@ -791,9 +835,9 @@ function ProximosMesesTab({ data, setIncome, setCierreDay }) {
     const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
     const mk = monthKey(d);
     const gastoComprometido = data.transactions
-      .filter((t) => t.chargeMonth === mk)
+      .filter((t) => t.currency === currency && t.chargeMonth === mk)
       .reduce((s, t) => s + t.amount, 0);
-    const ingresoMes = data.income[mk]?.amount || 0;
+    const ingresoMes = data.income[`${mk}:${currency}`]?.amount || 0;
     return { mk, gastoComprometido, ingresoMes };
   });
 
@@ -832,6 +876,7 @@ function ProximosMesesTab({ data, setIncome, setCierreDay }) {
         <MonthSummary
           key={m.mk}
           mk={m.mk}
+          currency={currency}
           ingreso={m.ingresoMes}
           gasto={m.gastoComprometido}
           onSaveIncome={setIncome}
@@ -845,8 +890,9 @@ function ProximosMesesTab({ data, setIncome, setCierreDay }) {
 /* Pestaña 4: Historial                                                 */
 /* ------------------------------------------------------------------ */
 
-function HistorialTab({ data, deleteTransaction }) {
-  const months = Array.from(new Set(data.transactions.map((t) => monthKey(new Date(t.ts))))).sort().reverse();
+function HistorialTab({ data, currency, deleteTransaction }) {
+  const filteredByCurrency = data.transactions.filter((t) => t.currency === currency);
+  const months = Array.from(new Set(filteredByCurrency.map((t) => monthKey(new Date(t.ts))))).sort().reverse();
   const [filter, setFilter] = useState(months[0] || monthKey(new Date()));
   const [confirmId, setConfirmId] = useState(null);
 
@@ -854,12 +900,12 @@ function HistorialTab({ data, deleteTransaction }) {
     if (months.length && !months.includes(filter)) setFilter(months[0]);
   }, [months.join(",")]);
 
-  const filtered = data.transactions
+  const filtered = filteredByCurrency
     .filter((t) => monthKey(new Date(t.ts)) === filter)
     .sort((a, b) => new Date(b.ts) - new Date(a.ts));
 
   function exportCSV() {
-    const header = ["Fecha", "Hora", "Categoria", "Subcategoria", "Detalle", "Concepto", "Importe", "MetodoPago", "MesDeCargo", "Latitud", "Longitud"];
+    const header = ["Fecha", "Hora", "Categoria", "Subcategoria", "Detalle", "Concepto", "Importe", "Moneda", "MetodoPago", "MesDeCargo", "Latitud", "Longitud"];
     const rows = data.transactions
       .slice()
       .sort((a, b) => new Date(a.ts) - new Date(b.ts))
@@ -873,6 +919,7 @@ function HistorialTab({ data, deleteTransaction }) {
           t.detail || "",
           t.concept || "",
           t.amount.toFixed(2),
+          t.currency || "CHF",
           t.paymentMethod === "credito" ? "Credito" : "Debito/Twint/Efectivo",
           t.chargeMonth || "",
           t.lat ?? "",
@@ -937,7 +984,7 @@ function HistorialTab({ data, deleteTransaction }) {
                   {t.paymentMethod === "credito" && t.chargeMonth ? ` · se paga ${monthLabel(t.chargeMonth)}` : ""}
                 </div>
               </div>
-              <div className="text-sm font-bold text-slate-700 whitespace-nowrap">{fmt(t.amount)}</div>
+              <div className="text-sm font-bold text-slate-700 whitespace-nowrap">{fmt(t.amount, t.currency)}</div>
               {confirmId === t.id ? (
                 <div className="flex items-center gap-1 flex-shrink-0">
                   <button
@@ -967,15 +1014,250 @@ function HistorialTab({ data, deleteTransaction }) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Pestaña: Patrimonio (bienes, deudas, neto por país + consolidado)   */
+/* ------------------------------------------------------------------ */
+
+const ASSET_TYPES = {
+  casa: { emoji: "🏠", label: "Casa" },
+  auto: { emoji: "🚗", label: "Auto" },
+  otro: { emoji: "📦", label: "Otro" },
+};
+
+function PatrimonioTab({ data, setFxRate, saveAsset, deleteAsset }) {
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [name, setName] = useState("");
+  const [type, setType] = useState("casa");
+  const [assetCurrency, setAssetCurrency] = useState("CHF");
+  const [value, setValue] = useState("");
+  const [debt, setDebt] = useState("");
+  const [confirmId, setConfirmId] = useState(null);
+  const [editingFx, setEditingFx] = useState(false);
+  const [fxInput, setFxInput] = useState(String(data.config.fxRate || ""));
+
+  function startNew() {
+    setEditingId(null);
+    setName("");
+    setType("casa");
+    setAssetCurrency("CHF");
+    setValue("");
+    setDebt("");
+    setShowForm(true);
+  }
+
+  function startEdit(a) {
+    setEditingId(a.id);
+    setName(a.name);
+    setType(a.type);
+    setAssetCurrency(a.currency);
+    setValue(String(a.value));
+    setDebt(String(a.debt || 0));
+    setShowForm(true);
+  }
+
+  function save() {
+    const v = parseFloat(value);
+    if (!name.trim() || !v) return;
+    saveAsset({
+      id: editingId || uid(),
+      name: name.trim(),
+      type,
+      currency: assetCurrency,
+      value: v,
+      debt: parseFloat(debt) || 0,
+    });
+    setShowForm(false);
+  }
+
+  function saveFx() {
+    const r = parseFloat(fxInput);
+    if (!r) return;
+    setFxRate(r);
+    setEditingFx(false);
+  }
+
+  const byCurrency = { CHF: { value: 0, debt: 0 }, ARS: { value: 0, debt: 0 } };
+  data.assets.forEach((a) => {
+    if (!byCurrency[a.currency]) byCurrency[a.currency] = { value: 0, debt: 0 };
+    byCurrency[a.currency].value += a.value;
+    byCurrency[a.currency].debt += a.debt || 0;
+  });
+  const netCHF = byCurrency.CHF.value - byCurrency.CHF.debt;
+  const netARS = byCurrency.ARS.value - byCurrency.ARS.debt;
+  const fx = parseFloat(data.config.fxRate);
+  const consolidatedCHF = fx ? netCHF + netARS / fx : null;
+
+  return (
+    <div className="p-4 flex flex-col gap-4 overflow-y-auto">
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-sky-50 rounded-2xl p-3 text-center">
+          <div className="text-xs text-sky-700 font-medium">🇨🇭 Neto Suiza</div>
+          <div className="text-sm font-bold text-sky-800">{fmt(netCHF, "CHF")}</div>
+        </div>
+        <div className="bg-amber-50 rounded-2xl p-3 text-center">
+          <div className="text-xs text-amber-700 font-medium">🇦🇷 Neto Argentina</div>
+          <div className="text-sm font-bold text-amber-800">{fmt(netARS, "ARS")}</div>
+        </div>
+      </div>
+
+      <div className="bg-violet-50 rounded-2xl p-4">
+        <div className="flex items-center justify-between">
+          <div className="text-xs text-violet-700 font-medium">Patrimonio neto consolidado</div>
+          <div className="text-lg font-bold text-violet-800">
+            {consolidatedCHF != null ? fmt(consolidatedCHF, "CHF") : "—"}
+          </div>
+        </div>
+        <div className="mt-2 pt-2 border-t border-violet-100 text-xs text-violet-500">
+          {!editingFx ? (
+            <button onClick={() => { setFxInput(String(data.config.fxRate || "")); setEditingFx(true); }} className="underline">
+              ⚙️ Tipo de cambio: {data.config.fxRate ? `1 CHF = ${data.config.fxRate} ARS` : "sin configurar"}
+            </button>
+          ) : (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span>1 CHF =</span>
+              <input
+                type="number"
+                value={fxInput}
+                onChange={(e) => setFxInput(e.target.value)}
+                placeholder="ARS"
+                className="w-24 border border-violet-300 rounded-lg px-2 py-1 text-violet-700"
+              />
+              <span>ARS</span>
+              <button onClick={saveFx} className="text-emerald-600 font-semibold">Guardar</button>
+              <button onClick={() => setEditingFx(false)} className="text-slate-400">Cancelar</button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {!showForm ? (
+        <button onClick={startNew} className="bg-slate-800 text-white rounded-xl py-2.5 text-sm font-semibold">
+          ➕ Agregar bien
+        </button>
+      ) : (
+        <div className="bg-slate-50 rounded-2xl p-4 flex flex-col gap-3">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Nombre (ej: Depto Zúrich)"
+            className="border-2 border-slate-200 rounded-xl px-3 py-2 text-sm"
+          />
+          <div className="grid grid-cols-3 gap-2">
+            {Object.entries(ASSET_TYPES).map(([k, m]) => (
+              <button
+                key={k}
+                onClick={() => setType(k)}
+                className={`rounded-xl py-2 text-xs font-semibold ${
+                  type === k ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"
+                }`}
+              >
+                {m.emoji} {m.label}
+              </button>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setAssetCurrency("CHF")}
+              className={`rounded-xl py-2 text-sm font-semibold ${
+                assetCurrency === "CHF" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"
+              }`}
+            >
+              🇨🇭 CHF
+            </button>
+            <button
+              onClick={() => setAssetCurrency("ARS")}
+              className={`rounded-xl py-2 text-sm font-semibold ${
+                assetCurrency === "ARS" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"
+              }`}
+            >
+              🇦🇷 ARS
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs text-slate-500">Valor</label>
+              <input
+                type="number"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                className="w-full border-2 border-slate-200 rounded-xl px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500">Deuda (opcional)</label>
+              <input
+                type="number"
+                value={debt}
+                onChange={(e) => setDebt(e.target.value)}
+                className="w-full border-2 border-slate-200 rounded-xl px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => setShowForm(false)} className="rounded-xl py-2.5 text-sm font-semibold text-slate-500 bg-slate-200">
+              Cancelar
+            </button>
+            <button
+              onClick={save}
+              disabled={!name.trim() || !parseFloat(value)}
+              className="rounded-xl py-2.5 text-sm font-semibold text-white bg-emerald-500 disabled:opacity-40"
+            >
+              Guardar
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2">
+        {data.assets.map((a) => {
+          const net = a.value - (a.debt || 0);
+          return (
+            <div key={a.id} className="bg-white border border-slate-100 rounded-2xl p-3 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-lg flex-shrink-0">
+                {ASSET_TYPES[a.type]?.emoji || "📦"}
+              </div>
+              <button className="flex-1 min-w-0 text-left" onClick={() => startEdit(a)}>
+                <div className="text-sm font-semibold text-slate-800 truncate">{a.name}</div>
+                <div className="text-xs text-slate-400">
+                  Valor {fmt(a.value, a.currency)}{a.debt ? ` · Deuda ${fmt(a.debt, a.currency)}` : ""}
+                </div>
+              </button>
+              <div className="text-sm font-bold text-slate-700 whitespace-nowrap">{fmt(net, a.currency)}</div>
+              {confirmId === a.id ? (
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button
+                    onClick={() => { deleteAsset(a.id); setConfirmId(null); }}
+                    className="text-xs font-bold text-white bg-rose-500 rounded-lg px-2 py-1.5"
+                  >
+                    Borrar
+                  </button>
+                  <button onClick={() => setConfirmId(null)} className="text-xs text-slate-400 px-1.5">Cancelar</button>
+                </div>
+              ) : (
+                <button onClick={() => setConfirmId(a.id)} className="text-slate-300 active:text-rose-500 text-lg px-1">✕</button>
+              )}
+            </div>
+          );
+        })}
+        {data.assets.length === 0 && (
+          <p className="text-center text-slate-400 text-sm py-8">Todavía no cargaste ningún bien.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* App                                                                  */
 /* ------------------------------------------------------------------ */
 
 function App() {
   const {
     data, ready, saveError, refresh, addTransaction, deleteTransaction, setIncome,
-    setCierreDay,
+    setCierreDay, setFxRate, saveAsset, deleteAsset,
   } = useSharedData();
   const [tab, setTab] = useState("entry");
+  const [viewCurrency, setViewCurrency] = useState("CHF");
 
   useEffect(() => {
     if (tab !== "entry") refresh();
@@ -983,10 +1265,13 @@ function App() {
 
   const tabs = [
     { key: "entry", label: "Cargar", emoji: "➕" },
-    { key: "balance", label: "Balance mensual", emoji: "📊" },
-    { key: "proximos", label: "Próximos meses", emoji: "📅" },
+    { key: "balance", label: "Balance", emoji: "📊" },
+    { key: "proximos", label: "Próximos", emoji: "📅" },
+    { key: "patrimonio", label: "Patrimonio", emoji: "🏛️" },
     { key: "historial", label: "Historial", emoji: "🧾" },
   ];
+
+  const showCurrencyToggle = ["balance", "proximos", "historial"].includes(tab);
 
   return (
     <div className="w-full h-[100dvh] bg-slate-50 flex flex-col overflow-hidden">
@@ -994,8 +1279,24 @@ function App() {
         <span className="font-bold">FinanzasAP</span>
         <div className="flex items-center gap-3">
           {saveError && <span className="text-[10px] text-amber-300">⚠ sin conexión al Sheet</span>}
+          {showCurrencyToggle && (
+            <div className="flex bg-slate-800 rounded-full p-0.5">
+              <button
+                onClick={() => setViewCurrency("CHF")}
+                className={`px-2.5 py-1 rounded-full text-xs font-semibold ${viewCurrency === "CHF" ? "bg-white text-slate-900" : "text-slate-300"}`}
+              >
+                🇨🇭
+              </button>
+              <button
+                onClick={() => setViewCurrency("ARS")}
+                className={`px-2.5 py-1 rounded-full text-xs font-semibold ${viewCurrency === "ARS" ? "bg-white text-slate-900" : "text-slate-300"}`}
+              >
+                🇦🇷
+              </button>
+            </div>
+          )}
           {tab !== "entry" && (
-            <button onClick={refresh} className="text-xs text-slate-300 active:text-white">↻ Actualizar</button>
+            <button onClick={refresh} className="text-xs text-slate-300 active:text-white">↻</button>
           )}
         </div>
       </div>
@@ -1006,24 +1307,26 @@ function App() {
         ) : tab === "entry" ? (
           <EntryTab addTransaction={addTransaction} config={data.config} />
         ) : tab === "balance" ? (
-          <BalanceTab data={data} setIncome={setIncome} />
+          <BalanceTab data={data} currency={viewCurrency} setIncome={setIncome} />
         ) : tab === "proximos" ? (
-          <ProximosMesesTab data={data} setIncome={setIncome} setCierreDay={setCierreDay} />
+          <ProximosMesesTab data={data} currency={viewCurrency} setIncome={setIncome} setCierreDay={setCierreDay} />
+        ) : tab === "patrimonio" ? (
+          <PatrimonioTab data={data} setFxRate={setFxRate} saveAsset={saveAsset} deleteAsset={deleteAsset} />
         ) : (
-          <HistorialTab data={data} deleteTransaction={deleteTransaction} />
+          <HistorialTab data={data} currency={viewCurrency} deleteTransaction={deleteTransaction} />
         )}
       </div>
 
-      <div className="grid grid-cols-4 border-t border-slate-200 bg-white pb-safe">
+      <div className="grid grid-cols-5 border-t border-slate-200 bg-white pb-safe">
         {tabs.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`py-3 flex flex-col items-center gap-0.5 text-xs font-medium ${
+            className={`py-3 flex flex-col items-center gap-0.5 text-[10px] font-medium ${
               tab === t.key ? "text-slate-900" : "text-slate-400"
             }`}
           >
-            <span className="text-xl">{t.emoji}</span>
+            <span className="text-lg">{t.emoji}</span>
             {t.label}
           </button>
         ))}
