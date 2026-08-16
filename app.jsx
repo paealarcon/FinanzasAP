@@ -1,10 +1,17 @@
+const { useState, useEffect, useRef, useCallback } = React;
+
+/* ------------------------------------------------------------------ */
+/* Backend: Google Apps Script Web App (guarda todo en el Google Sheet)*/
+/* Usamos JSONP (carga vía <script>) en vez de fetch() porque Apps      */
+/* Script no soporta configurar CORS, y fetch() cross-origin lo bloquea.*/
+/* ------------------------------------------------------------------ */
 const API_URL = "https://script.google.com/macros/s/AKfycbziPh3NfDuuRFziySIF4dsji24_fhh4MHKePGPSmfGTyad9mkDLUwcIonGkkwsGPIkY1Q/exec";
- 
+
 function jsonp(url, timeoutMs = 12000) {
   return new Promise((resolve, reject) => {
     const cbName = "cb_" + Date.now() + "_" + Math.random().toString(36).slice(2);
     const script = document.createElement("script");
- 
+
     const cleanup = () => {
       delete window[cbName];
       script.remove();
@@ -14,7 +21,7 @@ function jsonp(url, timeoutMs = 12000) {
       cleanup();
       reject(new Error("JSONP: tiempo de espera agotado"));
     }, timeoutMs);
- 
+
     window[cbName] = (data) => {
       cleanup();
       resolve(data);
@@ -27,11 +34,11 @@ function jsonp(url, timeoutMs = 12000) {
     document.body.appendChild(script);
   });
 }
- 
+
 async function apiGet() {
   return jsonp(API_URL + "?action=all");
 }
- 
+
 async function apiPost(payload) {
   const params = new URLSearchParams();
   params.set("action", payload.action);
@@ -46,13 +53,13 @@ async function apiPost(payload) {
   if (payload.asset) params.set("asset", JSON.stringify(payload.asset));
   return jsonp(API_URL + "?" + params.toString());
 }
- 
+
 /* ------------------------------------------------------------------ */
 /* Configuración de categorías                                        */
 /* ------------------------------------------------------------------ */
- 
+
 const LOAN_MONTHLY_AMOUNT = 1315.1;
- 
+
 function buildLoanInstallments() {
   const out = [];
   let d = new Date(2026, 8, 1); // septiembre 2026 (mes 8 = índice 0-based)
@@ -68,7 +75,7 @@ function buildLoanInstallments() {
   }
   return out;
 }
- 
+
 const CATS = [
   {
     key: "supermercado", label: "Víveres", emoji: "🛒",
@@ -122,11 +129,6 @@ const CATS = [
     subs: null,
   },
   {
-    key: "ahorro", label: "Ahorro", emoji: "🐷",
-    color: "#16a34a", light: "#dcfce7", dark: "#14532d",
-    subs: null,
-  },
-  {
     key: "viajes", label: "Viajes", emoji: "✈️",
     color: "#06b6d4", light: "#cffafe", dark: "#155e75",
     subs: [
@@ -151,14 +153,14 @@ const CATS = [
     ],
   },
 ];
- 
+
 const CAT_BY_KEY = Object.fromEntries(CATS.map((c) => [c.key, c]));
 const CURRENCY = "CHF";
- 
+
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
 /* ------------------------------------------------------------------ */
- 
+
 function monthKey(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
@@ -202,7 +204,7 @@ function getLocation(timeoutMs = 4000) {
     );
   });
 }
- 
+
 // Calcula en qué mes impacta realmente una compra según el método de pago.
 // No-crédito: impacta el mismo mes de la compra.
 // Crédito: si el día de compra es <= día de cierre, cae en el resumen que
@@ -214,17 +216,17 @@ function computeChargeMonth(date, paymentMethod, cierreDay) {
   const d2 = new Date(date.getFullYear(), date.getMonth() + shift, 1);
   return monthKey(d2);
 }
- 
+
 /* ------------------------------------------------------------------ */
 /* Almacenamiento compartido (Google Sheet vía Apps Script)            */
 /* ------------------------------------------------------------------ */
- 
+
 function useSharedData() {
   const DEFAULT_CONFIG = { cierreDay: 15, lastPaymentMethod: "no_credito", lastCurrency: "CHF", fxRate: "" };
   const [data, setData] = useState({ transactions: [], income: {}, savings: [], assets: [], config: DEFAULT_CONFIG });
   const [ready, setReady] = useState(false);
   const [saveError, setSaveError] = useState(false);
- 
+
   const applyFresh = useCallback((fresh) => {
     setData({
       transactions: fresh.transactions || [],
@@ -234,7 +236,7 @@ function useSharedData() {
       config: { ...DEFAULT_CONFIG, ...(fresh.config || {}) },
     });
   }, []);
- 
+
   const refresh = useCallback(async () => {
     try {
       const fresh = await apiGet();
@@ -244,11 +246,11 @@ function useSharedData() {
       setSaveError(true);
     }
   }, [applyFresh]);
- 
+
   useEffect(() => {
     refresh().finally(() => setReady(true));
   }, [refresh]);
- 
+
   const mutate = useCallback((payload) => {
     apiPost(payload)
       .then((fresh) => {
@@ -257,7 +259,7 @@ function useSharedData() {
       })
       .catch(() => setSaveError(true));
   }, [applyFresh]);
- 
+
   const addTransaction = useCallback((tx) => {
     setData((prev) => ({
       ...prev,
@@ -266,12 +268,12 @@ function useSharedData() {
     })); // optimista
     mutate({ action: "addTransaction", tx });
   }, [mutate]);
- 
+
   const deleteTransaction = useCallback((id) => {
     setData((prev) => ({ ...prev, transactions: prev.transactions.filter((t) => t.id !== id) }));
     mutate({ action: "deleteTransaction", id });
   }, [mutate]);
- 
+
   const setIncome = useCallback((mk, currency, amount) => {
     const incomeKey = `${mk}:${currency}`;
     setData((prev) => ({
@@ -280,27 +282,27 @@ function useSharedData() {
     }));
     mutate({ action: "setIncome", monthKey: mk, currency, amount });
   }, [mutate]);
- 
+
   const addSavingsMovement = useCallback((mv) => {
     setData((prev) => ({ ...prev, savings: [mv, ...prev.savings] }));
     mutate({ action: "addSavings", mv });
   }, [mutate]);
- 
+
   const deleteSavingsMovement = useCallback((id) => {
     setData((prev) => ({ ...prev, savings: prev.savings.filter((m) => m.id !== id) }));
     mutate({ action: "deleteSavings", id });
   }, [mutate]);
- 
+
   const setCierreDay = useCallback((day) => {
     setData((prev) => ({ ...prev, config: { ...prev.config, cierreDay: day } }));
     mutate({ action: "setConfig", key: "cierreDay", value: day });
   }, [mutate]);
- 
+
   const setFxRate = useCallback((rate) => {
     setData((prev) => ({ ...prev, config: { ...prev.config, fxRate: rate } }));
     mutate({ action: "setConfig", key: "fxRate", value: rate });
   }, [mutate]);
- 
+
   const saveAsset = useCallback((asset) => {
     setData((prev) => {
       const exists = prev.assets.some((a) => a.id === asset.id);
@@ -311,49 +313,60 @@ function useSharedData() {
     });
     mutate({ action: "saveAsset", asset });
   }, [mutate]);
- 
+
   const deleteAsset = useCallback((id) => {
     setData((prev) => ({ ...prev, assets: prev.assets.filter((a) => a.id !== id) }));
     mutate({ action: "deleteAsset", id });
   }, [mutate]);
- 
+
   return {
     data, ready, saveError, refresh, addTransaction, deleteTransaction, setIncome,
     addSavingsMovement, deleteSavingsMovement, setCierreDay, setFxRate, saveAsset, deleteAsset,
   };
 }
- 
+
 /* ------------------------------------------------------------------ */
 /* Teclado numérico                                                    */
 /* ------------------------------------------------------------------ */
- 
+
 function Keypad({ value, onChange }) {
   const press = (k) => {
     if (k === "back") return onChange(value.slice(0, -1));
-    if (k === "." && value.includes(".")) return;
-    if (value === "0" && k !== ".") return onChange(k);
+    const sign = value.startsWith("-") ? "-" : "";
+    const digits = sign ? value.slice(1) : value;
+    if (k === "." && digits.includes(".")) return;
+    if (digits === "0" && k !== ".") return onChange(sign + k);
     onChange(value + k);
   };
+  const toggleSign = () => onChange(value.startsWith("-") ? value.slice(1) : "-" + value);
   const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "back"];
   return (
-    <div className="grid grid-cols-3 gap-2 w-full max-w-xs mx-auto">
-      {keys.map((k) => (
-        <button
-          key={k}
-          onClick={() => press(k)}
-          className="h-16 rounded-2xl bg-slate-100 active:bg-slate-200 text-2xl font-semibold text-slate-800 flex items-center justify-center select-none"
-        >
-          {k === "back" ? "⌫" : k}
-        </button>
-      ))}
+    <div className="w-full max-w-xs mx-auto flex flex-col gap-2">
+      <div className="grid grid-cols-3 gap-2">
+        {keys.map((k) => (
+          <button
+            key={k}
+            onClick={() => press(k)}
+            className="h-16 rounded-2xl bg-slate-100 active:bg-slate-200 text-2xl font-semibold text-slate-800 flex items-center justify-center select-none"
+          >
+            {k === "back" ? "⌫" : k}
+          </button>
+        ))}
+      </div>
+      <button
+        onClick={toggleSign}
+        className="h-11 rounded-2xl bg-slate-200 active:bg-slate-300 text-sm font-semibold text-slate-600 select-none"
+      >
+        {value.startsWith("-") ? "± Convertir a positivo" : "± Convertir a negativo (devolución)"}
+      </button>
     </div>
   );
 }
- 
+
 /* ------------------------------------------------------------------ */
 /* Pestaña 1: Cargar gasto                                             */
 /* ------------------------------------------------------------------ */
- 
+
 function EntryTab({ addTransaction, config }) {
   const [path, setPath] = useState([]);
   const [step, setStep] = useState("cat");
@@ -368,20 +381,20 @@ function EntryTab({ addTransaction, config }) {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
   const geoRef = useRef(null);
- 
+
   useEffect(() => {
     getLocation().then((loc) => { geoRef.current = loc; });
   }, []);
- 
+
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 2200);
     return () => clearTimeout(t);
   }, [toast]);
- 
+
   const rootColor = path[0]?.color || "#334155";
   const rootAccent = rootColor === "#ffffff" ? (path[0]?.dark || "#334155") : rootColor;
- 
+
   function reset() {
     setPath([]);
     setStep("cat");
@@ -393,7 +406,7 @@ function EntryTab({ addTransaction, config }) {
     setEditingDate(false);
     setPaymentMethod("no_credito");
   }
- 
+
   function pickCategory(cat) {
     const node = {
       level: "cat", key: cat.key, label: cat.label, emoji: cat.emoji, color: cat.color, dark: cat.dark,
@@ -412,7 +425,7 @@ function EntryTab({ addTransaction, config }) {
       setStep("sub");
     }
   }
- 
+
   function pickSub(list, sub, parentPath) {
     const node = { level: "sub", key: sub.key, label: sub.label, emoji: sub.emoji, color: parentPath[0].color };
     if (sub.freeText) {
@@ -429,7 +442,7 @@ function EntryTab({ addTransaction, config }) {
       setStep("amount");
     }
   }
- 
+
   function confirmFreeText() {
     if (!freeTextInput.trim()) return;
     const newPath = [...pendingFreeText.parent];
@@ -439,7 +452,7 @@ function EntryTab({ addTransaction, config }) {
     setFreeTextInput("");
     setStep("amount");
   }
- 
+
   function currentSubOptions() {
     let cat = CAT_BY_KEY[path[0].key];
     let list = cat.subs;
@@ -450,10 +463,10 @@ function EntryTab({ addTransaction, config }) {
     }
     return list || [];
   }
- 
+
   async function handleSave() {
     const num = parseFloat(amount);
-    if (!num || num <= 0) return;
+    if (!num) return;
     setSaving(true);
     const loc = geoRef.current || (await getLocation());
     const now = new Date(dateInput);
@@ -479,9 +492,9 @@ function EntryTab({ addTransaction, config }) {
     reset();
     getLocation().then((l) => { geoRef.current = l; });
   }
- 
+
   const breadcrumb = path.map((p) => `${p.emoji || ""} ${p.label}`).join(" › ");
- 
+
   return (
     <div className="flex flex-col h-full">
       {toast && (
@@ -489,14 +502,14 @@ function EntryTab({ addTransaction, config }) {
           {toast}
         </div>
       )}
- 
+
       {path.length > 0 && (
         <div className="flex items-center gap-2 px-4 pt-3 pb-1 text-sm text-slate-500">
           <button onClick={reset} className="text-slate-400 active:text-slate-600">↺ empezar de nuevo</button>
           <span className="ml-auto font-medium" style={{ color: rootAccent }}>{breadcrumb}</span>
         </div>
       )}
- 
+
       {step === "cat" && (
         <div className="grid grid-cols-2 gap-3 p-4 overflow-y-auto">
           {CATS.map((c) => {
@@ -519,7 +532,7 @@ function EntryTab({ addTransaction, config }) {
           })}
         </div>
       )}
- 
+
       {step === "sub" && !pendingFreeText && (
         <div className="grid grid-cols-2 gap-3 p-4 overflow-y-auto">
           {currentSubOptions().map((s) => (
@@ -535,7 +548,7 @@ function EntryTab({ addTransaction, config }) {
           ))}
         </div>
       )}
- 
+
       {step === "sub" && pendingFreeText && (
         <div className="flex flex-col gap-4 p-6">
           <p className="text-slate-600 text-sm">Escribí un nombre para esta categoría:</p>
@@ -556,7 +569,7 @@ function EntryTab({ addTransaction, config }) {
           </button>
         </div>
       )}
- 
+
       {step === "amount" && (
         <div className="flex flex-col items-center gap-6 p-6 flex-1 overflow-y-auto">
           <div className="w-full max-w-xs grid grid-cols-2 gap-2">
@@ -638,15 +651,15 @@ function EntryTab({ addTransaction, config }) {
     </div>
   );
 }
- 
+
 /* ------------------------------------------------------------------ */
 /* Pestaña 2: Balance                                                   */
 /* ------------------------------------------------------------------ */
- 
+
 /* ------------------------------------------------------------------ */
 /* Gráfico de torta (SVG puro, sin librerías externas)                 */
 /* ------------------------------------------------------------------ */
- 
+
 function DonutChart({ data, size = 200 }) {
   const total = data.reduce((s, d) => s + d.value, 0);
   if (!total) return null;
@@ -655,7 +668,7 @@ function DonutChart({ data, size = 200 }) {
   const innerRadius = radius - strokeWidth / 2;
   const circumference = 2 * Math.PI * innerRadius;
   let cumulative = 0;
- 
+
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
       <g transform={`rotate(-90 ${radius} ${radius})`}>
@@ -684,27 +697,27 @@ function DonutChart({ data, size = 200 }) {
     </svg>
   );
 }
- 
+
 /* ------------------------------------------------------------------ */
 /* Bloque de un mes: ingresos (tocable) / gastos / saldo               */
 /* ------------------------------------------------------------------ */
- 
+
 function MonthSummary({ mk, currency, ingreso, gasto, onSaveIncome }) {
   const [editing, setEditing] = useState(false);
   const [amount, setAmount] = useState(String(ingreso || 0));
   const saldo = ingreso - gasto;
- 
+
   function start() {
     setAmount(ingreso ? String(ingreso) : "0");
     setEditing(true);
   }
   function save() {
     const n = parseFloat(amount);
-    if (!n || n <= 0) return;
+    if (!n) return;
     onSaveIncome(mk, currency, n);
     setEditing(false);
   }
- 
+
   return (
     <div className="flex flex-col gap-2">
       <h3 className="text-sm font-bold text-slate-700 capitalize">{monthLabel(mk)}</h3>
@@ -752,32 +765,32 @@ function MonthSummary({ mk, currency, ingreso, gasto, onSaveIncome }) {
     </div>
   );
 }
- 
+
 function BalanceTab({ data, currency, setIncome }) {
   const now = new Date();
   const currentMK = monthKey(now);
- 
+
   const monthTx = data.transactions.filter((t) => monthKey(new Date(t.ts)) === currentMK && t.currency === currency);
   const incomeRec = data.income[`${currentMK}:${currency}`];
   const ingreso = incomeRec?.amount || 0;
- 
+
   // "Gastos" del mes actual = lo que realmente sale de la cuenta este mes:
   // no-crédito de este mes + crédito de compras anteriores que vence ahora.
   const gasto = data.transactions
     .filter((t) => t.currency === currency && (t.chargeMonth || monthKey(new Date(t.ts))) === currentMK)
     .reduce((s, t) => s + t.amount, 0);
- 
+
   const needsReminder = now.getDate() >= 25 && (!incomeRec ||
     new Date(incomeRec.updatedAt).getMonth() !== now.getMonth() ||
     new Date(incomeRec.updatedAt).getFullYear() !== now.getFullYear());
- 
+
   const byCat = {};
   monthTx.forEach((t) => {
     if (!byCat[t.categoryKey]) byCat[t.categoryKey] = { name: t.category, value: 0, color: t.categoryColor };
     byCat[t.categoryKey].value += t.amount;
   });
   const pieData = Object.values(byCat);
- 
+
   return (
     <div className="p-4 flex flex-col gap-4 overflow-y-auto">
       {needsReminder && (
@@ -785,9 +798,9 @@ function BalanceTab({ data, currency, setIncome }) {
           <span>📅 Es 25 o más tarde — actualizá el ingreso del mes.</span>
         </div>
       )}
- 
+
       <MonthSummary mk={currentMK} currency={currency} ingreso={ingreso} gasto={gasto} onSaveIncome={setIncome} />
- 
+
       <div className="bg-white rounded-2xl border border-slate-100 p-4">
         {pieData.length === 0 ? (
           <p className="text-center text-slate-400 text-sm py-8">Todavía no hay gastos este mes.</p>
@@ -814,16 +827,16 @@ function BalanceTab({ data, currency, setIncome }) {
     </div>
   );
 }
- 
+
 /* ------------------------------------------------------------------ */
 /* Pestaña: Próximos meses (gastos ya comprometidos por crédito)       */
 /* ------------------------------------------------------------------ */
- 
+
 function ProximosMesesTab({ data, currency, setIncome, setCierreDay }) {
   const now = new Date();
   const [editingCierre, setEditingCierre] = useState(false);
   const [cierreInput, setCierreInput] = useState(String(data.config.cierreDay));
- 
+
   const upcomingMonths = [1, 2].map((offset) => {
     const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
     const mk = monthKey(d);
@@ -833,14 +846,14 @@ function ProximosMesesTab({ data, currency, setIncome, setCierreDay }) {
     const ingresoMes = data.income[`${mk}:${currency}`]?.amount || 0;
     return { mk, gastoComprometido, ingresoMes };
   });
- 
+
   function saveCierre() {
     const d = parseInt(cierreInput, 10);
     if (!d || d < 1 || d > 31) return;
     setCierreDay(d);
     setEditingCierre(false);
   }
- 
+
   return (
     <div className="p-4 flex flex-col gap-4 overflow-y-auto">
       <div className="flex items-center justify-between text-xs text-slate-400 px-1">
@@ -864,7 +877,7 @@ function ProximosMesesTab({ data, currency, setIncome, setCierreDay }) {
           </div>
         )}
       </div>
- 
+
       {upcomingMonths.map((m) => (
         <MonthSummary
           key={m.mk}
@@ -878,25 +891,25 @@ function ProximosMesesTab({ data, currency, setIncome, setCierreDay }) {
     </div>
   );
 }
- 
+
 /* ------------------------------------------------------------------ */
 /* Pestaña 4: Historial                                                 */
 /* ------------------------------------------------------------------ */
- 
+
 function HistorialTab({ data, currency, deleteTransaction }) {
   const filteredByCurrency = data.transactions.filter((t) => t.currency === currency);
   const months = Array.from(new Set(filteredByCurrency.map((t) => monthKey(new Date(t.ts))))).sort().reverse();
   const [filter, setFilter] = useState(months[0] || monthKey(new Date()));
   const [confirmId, setConfirmId] = useState(null);
- 
+
   useEffect(() => {
     if (months.length && !months.includes(filter)) setFilter(months[0]);
   }, [months.join(",")]);
- 
+
   const filtered = filteredByCurrency
     .filter((t) => monthKey(new Date(t.ts)) === filter)
     .sort((a, b) => new Date(b.ts) - new Date(a.ts));
- 
+
   function exportCSV() {
     const header = ["Fecha", "Hora", "Categoria", "Subcategoria", "Detalle", "Concepto", "Importe", "Moneda", "MetodoPago", "MesDeCargo", "Latitud", "Longitud"];
     const rows = data.transactions
@@ -930,7 +943,7 @@ function HistorialTab({ data, currency, deleteTransaction }) {
     a.click();
     URL.revokeObjectURL(url);
   }
- 
+
   return (
     <div className="p-4 flex flex-col gap-3 overflow-y-auto h-full">
       <div className="flex items-center gap-2">
@@ -948,11 +961,11 @@ function HistorialTab({ data, currency, deleteTransaction }) {
           ⬇ CSV
         </button>
       </div>
- 
+
       {filtered.length === 0 && (
         <p className="text-center text-slate-400 text-sm py-8">No hay gastos cargados en este mes.</p>
       )}
- 
+
       <div className="flex flex-col gap-2">
         {filtered.map((t) => {
           const d = new Date(t.ts);
@@ -1005,17 +1018,117 @@ function HistorialTab({ data, currency, deleteTransaction }) {
     </div>
   );
 }
- 
+
+/* ------------------------------------------------------------------ */
+/* Pestaña: Ahorro (teclado directo, admite negativos = devoluciones)  */
+/* ------------------------------------------------------------------ */
+
+function AhorroTab({ data, addSavingsMovement, deleteSavingsMovement }) {
+  const [amount, setAmount] = useState("0");
+  const [concept, setConcept] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [confirmId, setConfirmId] = useState(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2200);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const total = data.savings.reduce((s, m) => s + m.amount, 0);
+
+  function handleSave() {
+    const n = parseFloat(amount);
+    if (!n) return;
+    setSaving(true);
+    addSavingsMovement({
+      id: uid(),
+      ts: new Date().toISOString(),
+      amount: n,
+      concept: concept.trim() || null,
+    });
+    setSaving(false);
+    setToast("Guardado ✅");
+    setAmount("0");
+    setConcept("");
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-6 p-6 h-full overflow-y-auto">
+      {toast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-4 py-2 rounded-full text-sm shadow-lg z-50">
+          {toast}
+        </div>
+      )}
+
+      <div className="bg-emerald-50 rounded-2xl px-6 py-3 text-center">
+        <div className="text-xs text-emerald-700 font-medium">Ahorro acumulado</div>
+        <div className="text-2xl font-bold text-emerald-800">{fmt(total)}</div>
+      </div>
+
+      <div className={`text-4xl font-bold tabular-nums ${amount.startsWith("-") ? "text-rose-600" : "text-emerald-700"}`}>
+        {CURRENCY} {amount}
+      </div>
+      <Keypad value={amount} onChange={setAmount} />
+      <input
+        value={concept}
+        onChange={(e) => setConcept(e.target.value)}
+        placeholder="Concepto (opcional)"
+        className="w-full max-w-xs border-2 border-slate-200 rounded-xl px-4 py-3 text-base focus:outline-none focus:border-slate-400"
+      />
+      <button
+        onClick={handleSave}
+        disabled={saving || !parseFloat(amount)}
+        className="w-full max-w-xs rounded-2xl py-4 text-white font-bold text-lg bg-emerald-600 disabled:opacity-40 active:scale-95 transition-transform"
+      >
+        {saving ? "Guardando…" : "Guardar"}
+      </button>
+
+      <div className="w-full flex flex-col gap-2 mt-2">
+        {data.savings.slice(0, 20).map((m) => {
+          const d = new Date(m.ts);
+          return (
+            <div key={m.id} className="bg-white border border-slate-100 rounded-xl p-2.5 flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="text-xs text-slate-500 truncate">
+                  {m.concept ? `${m.concept} · ` : ""}{d.toLocaleDateString("es-AR")}
+                </div>
+              </div>
+              <div className={`text-sm font-bold whitespace-nowrap ${m.amount >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                {m.amount >= 0 ? "+" : ""}{fmt(m.amount)}
+              </div>
+              {confirmId === m.id ? (
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button
+                    onClick={() => { deleteSavingsMovement(m.id); setConfirmId(null); }}
+                    className="text-xs font-bold text-white bg-rose-500 rounded-lg px-2 py-1.5"
+                  >
+                    Borrar
+                  </button>
+                  <button onClick={() => setConfirmId(null)} className="text-xs text-slate-400 px-1.5">Cancelar</button>
+                </div>
+              ) : (
+                <button onClick={() => setConfirmId(m.id)} className="text-slate-300 active:text-rose-500 px-1">✕</button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* Pestaña: Patrimonio (bienes, deudas, neto por país + consolidado)   */
 /* ------------------------------------------------------------------ */
- 
+
 const ASSET_TYPES = {
   casa: { emoji: "🏠", label: "Casa" },
   auto: { emoji: "🚗", label: "Auto" },
   otro: { emoji: "📦", label: "Otro" },
 };
- 
+
 function PatrimonioTab({ data, setFxRate, saveAsset, deleteAsset }) {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -1027,7 +1140,7 @@ function PatrimonioTab({ data, setFxRate, saveAsset, deleteAsset }) {
   const [confirmId, setConfirmId] = useState(null);
   const [editingFx, setEditingFx] = useState(false);
   const [fxInput, setFxInput] = useState(String(data.config.fxRate || ""));
- 
+
   function startNew() {
     setEditingId(null);
     setName("");
@@ -1037,7 +1150,7 @@ function PatrimonioTab({ data, setFxRate, saveAsset, deleteAsset }) {
     setDebt("");
     setShowForm(true);
   }
- 
+
   function startEdit(a) {
     setEditingId(a.id);
     setName(a.name);
@@ -1047,7 +1160,7 @@ function PatrimonioTab({ data, setFxRate, saveAsset, deleteAsset }) {
     setDebt(String(a.debt || 0));
     setShowForm(true);
   }
- 
+
   function save() {
     const v = parseFloat(value);
     if (!name.trim() || !v) return;
@@ -1061,14 +1174,14 @@ function PatrimonioTab({ data, setFxRate, saveAsset, deleteAsset }) {
     });
     setShowForm(false);
   }
- 
+
   function saveFx() {
     const r = parseFloat(fxInput);
     if (!r) return;
     setFxRate(r);
     setEditingFx(false);
   }
- 
+
   const byCurrency = { CHF: { value: 0, debt: 0 }, ARS: { value: 0, debt: 0 } };
   data.assets.forEach((a) => {
     if (!byCurrency[a.currency]) byCurrency[a.currency] = { value: 0, debt: 0 };
@@ -1079,7 +1192,7 @@ function PatrimonioTab({ data, setFxRate, saveAsset, deleteAsset }) {
   const netARS = byCurrency.ARS.value - byCurrency.ARS.debt;
   const fx = parseFloat(data.config.fxRate);
   const consolidatedCHF = fx ? netCHF + netARS / fx : null;
- 
+
   return (
     <div className="p-4 flex flex-col gap-4 overflow-y-auto">
       <div className="grid grid-cols-2 gap-2">
@@ -1092,7 +1205,7 @@ function PatrimonioTab({ data, setFxRate, saveAsset, deleteAsset }) {
           <div className="text-sm font-bold text-amber-800">{fmt(netARS, "ARS")}</div>
         </div>
       </div>
- 
+
       <div className="bg-violet-50 rounded-2xl p-4">
         <div className="flex items-center justify-between">
           <div className="text-xs text-violet-700 font-medium">Patrimonio neto consolidado</div>
@@ -1122,7 +1235,7 @@ function PatrimonioTab({ data, setFxRate, saveAsset, deleteAsset }) {
           )}
         </div>
       </div>
- 
+
       {!showForm ? (
         <button onClick={startNew} className="bg-slate-800 text-white rounded-xl py-2.5 text-sm font-semibold">
           ➕ Agregar bien
@@ -1200,7 +1313,7 @@ function PatrimonioTab({ data, setFxRate, saveAsset, deleteAsset }) {
           </div>
         </div>
       )}
- 
+
       <div className="flex flex-col gap-2">
         {data.assets.map((a) => {
           const net = a.value - (a.debt || 0);
@@ -1239,33 +1352,34 @@ function PatrimonioTab({ data, setFxRate, saveAsset, deleteAsset }) {
     </div>
   );
 }
- 
+
 /* ------------------------------------------------------------------ */
 /* App                                                                  */
 /* ------------------------------------------------------------------ */
- 
+
 function App() {
   const {
     data, ready, saveError, refresh, addTransaction, deleteTransaction, setIncome,
-    setCierreDay, setFxRate, saveAsset, deleteAsset,
+    setCierreDay, setFxRate, saveAsset, deleteAsset, addSavingsMovement, deleteSavingsMovement,
   } = useSharedData();
   const [tab, setTab] = useState("entry");
   const [viewCurrency, setViewCurrency] = useState("CHF");
- 
+
   useEffect(() => {
     if (tab !== "entry") refresh();
   }, [tab, refresh]);
- 
+
   const tabs = [
     { key: "entry", label: "Cargar", emoji: "➕" },
-    { key: "balance", label: "Balance", emoji: "📊" },
-    { key: "proximos", label: "Próximos", emoji: "📅" },
+    { key: "balance", label: "Balance mensual", emoji: "📊" },
+    { key: "proximos", label: "Próximos meses", emoji: "📅" },
+    { key: "ahorro", label: "Ahorro", emoji: "🐷" },
     { key: "patrimonio", label: "Patrimonio", emoji: "🏛️" },
     { key: "historial", label: "Historial", emoji: "🧾" },
   ];
- 
+
   const showCurrencyToggle = ["balance", "proximos", "historial"].includes(tab);
- 
+
   return (
     <div className="w-full h-[100dvh] bg-slate-50 flex flex-col overflow-hidden">
       <div className="bg-slate-900 text-white px-4 py-3 flex items-center justify-between pt-safe">
@@ -1293,7 +1407,7 @@ function App() {
           )}
         </div>
       </div>
- 
+
       <div className="flex-1 overflow-hidden">
         {!ready ? (
           <div className="h-full flex items-center justify-center text-slate-400 text-sm">Cargando…</div>
@@ -1303,23 +1417,25 @@ function App() {
           <BalanceTab data={data} currency={viewCurrency} setIncome={setIncome} />
         ) : tab === "proximos" ? (
           <ProximosMesesTab data={data} currency={viewCurrency} setIncome={setIncome} setCierreDay={setCierreDay} />
+        ) : tab === "ahorro" ? (
+          <AhorroTab data={data} addSavingsMovement={addSavingsMovement} deleteSavingsMovement={deleteSavingsMovement} />
         ) : tab === "patrimonio" ? (
           <PatrimonioTab data={data} setFxRate={setFxRate} saveAsset={saveAsset} deleteAsset={deleteAsset} />
         ) : (
           <HistorialTab data={data} currency={viewCurrency} deleteTransaction={deleteTransaction} />
         )}
       </div>
- 
-      <div className="grid grid-cols-5 border-t border-slate-200 bg-white pb-safe">
+
+      <div className="grid grid-cols-6 border-t border-slate-200 bg-white pb-safe">
         {tabs.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`py-3 flex flex-col items-center gap-0.5 text-[10px] font-medium ${
+            className={`py-2.5 flex flex-col items-center gap-0.5 text-[8.5px] leading-tight font-medium px-0.5 text-center ${
               tab === t.key ? "text-slate-900" : "text-slate-400"
             }`}
           >
-            <span className="text-lg">{t.emoji}</span>
+            <span className="text-base">{t.emoji}</span>
             {t.label}
           </button>
         ))}
@@ -1327,6 +1443,6 @@ function App() {
     </div>
   );
 }
- 
+
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(<App />);
