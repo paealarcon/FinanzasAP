@@ -119,7 +119,7 @@ function calcCuotaSimulada(monto, cuotas, tasaPct) {
   return (P * r) / (1 - Math.pow(1 + r, -N));
 }
 
-const CATS = [
+const CATS_CHF = [
   {
     key: "alquiler", label: "Gastos fijos", emoji: "🏠🚆", icon: "icon-gastosfijos.png",
     color: "#e0a238", light: "#fdf1dc", dark: "#7a4e08",
@@ -195,15 +195,83 @@ const CATS = [
     color: "#c17817", light: "#fbe8cc", dark: "#6b3f0a",
     subs: [
       { key: "ubs", label: "UBS", subs: buildLoanInstallments() },
-      { key: "luis_terreno", label: "Luis-Terreno", subs: buildTerrenoInstallments() },
-      { key: "procrear", label: "Procrear", freeText: true },
       { key: "marcelita_rtrader", label: "Marcelita Ferro y RTrader", freeText: true },
       { key: "otro", label: "Otro", freeText: true },
     ],
   },
 ];
 
-const CAT_BY_KEY = Object.fromEntries(CATS.map((c) => [c.key, c]));
+const CATS_ARS = [
+  {
+    key: "gastos_fijos_ar", label: "Gastos fijos", emoji: "🏠🚆", icon: "icon-gastosfijos.png",
+    color: "#e0a238", light: "#fdf1dc", dark: "#7a4e08",
+    subs: [
+      {
+        key: "auto", label: "Auto",
+        subs: [
+          { key: "patente", label: "Patente" },
+          { key: "seguro_auto", label: "Seguro" },
+        ],
+      },
+      {
+        key: "casa_servicios", label: "Casa",
+        subs: [
+          { key: "electricidad", label: "Electricidad" },
+          { key: "gas", label: "Gas" },
+          { key: "agua", label: "Agua" },
+          { key: "internet", label: "Internet" },
+          { key: "seguro_casa", label: "Seguro" },
+        ],
+      },
+      { key: "suscripciones", label: "Suscripciones" },
+      { key: "otro", label: "Otro", freeText: true },
+    ],
+  },
+  {
+    key: "viveres_ar", label: "Víveres", emoji: "🛒", icon: "icon-viveres.png",
+    color: "#4a7c59", light: "#e2ede1", dark: "#234229",
+    subs: [
+      { key: "supermercado", label: "Supermercado" },
+      { key: "kiosko", label: "Kiosko" },
+      { key: "restaurante", label: "Restaurante" },
+    ],
+  },
+  {
+    key: "salud_ar", label: "Salud", emoji: "🌿", icon: "icon-salud.png",
+    color: "#8ca86b", light: "#eef3e6", dark: "#435330",
+    subs: [
+      { key: "seguro_salud", label: "Seguro" },
+      { key: "farmacia", label: "Farmacia" },
+      { key: "otro", label: "Otro", freeText: true },
+    ],
+  },
+  {
+    key: "ropa_ar", label: "Ropa", emoji: "👗👔", icon: "icon-ropa.png",
+    color: "#bf7e5c", light: "#f8e9e0", dark: "#6b3a22",
+    subs: null, conceptPlaceholder: "Ej: zapatillas, campera, ropa interior",
+  },
+  {
+    key: "casa_ar", label: "Casa", emoji: "🛋️", icon: "icon-casa.png",
+    color: "#d9ac5c", light: "#faf0dc", dark: "#6b4d16",
+    subs: null, conceptPlaceholder: "Ej: mueble, arreglo, decoración",
+  },
+  {
+    key: "varios_ar", label: "Varios", emoji: "🔀", icon: "icon-varios.png",
+    color: "#8a7150", light: "#efe8dd", dark: "#453824",
+    subs: null,
+  },
+  {
+    key: "prestamos_ar", label: "Préstamos", emoji: "💸", icon: "icon-prestamos.png",
+    color: "#c17817", light: "#fbe8cc", dark: "#6b3f0a",
+    subs: [
+      { key: "luis_terreno", label: "Luis-Terreno", subs: buildTerrenoInstallments() },
+      { key: "procrear", label: "Procrear", freeText: true },
+      { key: "otro", label: "Otro", freeText: true },
+    ],
+  },
+];
+
+const CAT_BY_KEY = Object.fromEntries([...CATS_CHF, ...CATS_ARS].map((c) => [c.key, c]));
 const CURRENCY = "CHF";
 
 /* ------------------------------------------------------------------ */
@@ -431,11 +499,12 @@ function Keypad({ value, onChange }) {
 /* Salud financiera: proyección de caja + estado, para decidir mejor   */
 /* ------------------------------------------------------------------ */
 
-function FinancialHealthPanel({ data }) {
-  const currency = "CHF"; // gasto diario de referencia
+function FinancialHealthPanel({ data, currency }) {
   const now = new Date();
   const effMonth = (t) => t.chargeMonth || monthKey(new Date(t.ts));
-  const FIXED_CAT_KEYS = ["supermercado", "salud", "prestamos"]; // Víveres, Salud, Préstamos
+  const FIXED_CAT_KEYS = currency === "CHF"
+    ? ["supermercado", "salud", "prestamos"] // Víveres, Salud, Préstamos (Suiza)
+    : ["viveres_ar", "salud_ar", "prestamos_ar"]; // Víveres, Salud, Préstamos (Argentina)
 
   const monthsData = [0, 1, 2].map((offset) => {
     const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
@@ -472,7 +541,7 @@ function FinancialHealthPanel({ data }) {
 
   return (
     <div className="mx-4 mb-4 bg-white rounded-2xl border border-slate-100 p-4 flex flex-col gap-3">
-      <div className="text-sm font-bold text-slate-700">📈 Salud financiera (CHF)</div>
+      <div className="text-sm font-bold text-slate-700">📈 Salud financiera ({currency})</div>
       <div className={`rounded-xl p-2.5 flex items-start gap-2 ${status.bg}`}>
         <span>{status.emoji}</span>
         <span className={`text-xs ${status.text}`}>{status.label}</span>
@@ -686,8 +755,26 @@ function EntryTab({ addTransaction, config, data, setHiddenLoans }) {
 
       {step === "cat" && (
         <div className="overflow-y-auto flex-1">
+          <div className="px-4 pt-4 grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setCurrency("CHF")}
+              className={`rounded-xl py-2.5 text-sm font-semibold ${
+                currency === "CHF" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500"
+              }`}
+            >
+              🇨🇭 Suiza (CHF)
+            </button>
+            <button
+              onClick={() => setCurrency("ARS")}
+              className={`rounded-xl py-2.5 text-sm font-semibold ${
+                currency === "ARS" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500"
+              }`}
+            >
+              🇦🇷 Argentina (ARS)
+            </button>
+          </div>
           <div className="grid grid-cols-2 gap-3 p-4">
-            {CATS.map((c) => {
+            {(currency === "CHF" ? CATS_CHF : CATS_ARS).map((c) => {
               return (
                 <button
                   key={c.key}
@@ -711,11 +798,11 @@ function EntryTab({ addTransaction, config, data, setHiddenLoans }) {
               );
             })}
           </div>
-          <FinancialHealthPanel data={data} />
+          <FinancialHealthPanel data={data} currency={currency} />
         </div>
       )}
 
-      {step === "sub" && !pendingFreeText && path[0]?.key === "prestamos" && (
+      {step === "sub" && !pendingFreeText && (path[0]?.key === "prestamos" || path[0]?.key === "prestamos_ar") && (
         <div className="grid grid-cols-2 gap-3 p-4 overflow-y-auto">
           {currentSubOptions()
             .filter((s) => !hiddenLoansArr.includes(s.key))
@@ -764,7 +851,7 @@ function EntryTab({ addTransaction, config, data, setHiddenLoans }) {
         </div>
       )}
 
-      {step === "sub" && !pendingFreeText && path[0]?.key !== "prestamos" && (
+      {step === "sub" && !pendingFreeText && path[0]?.key !== "prestamos" && path[0]?.key !== "prestamos_ar" && (
         <div className="grid grid-cols-2 gap-3 p-4 overflow-y-auto">
           {currentSubOptions().map((s) => (
             <button
@@ -857,24 +944,6 @@ function EntryTab({ addTransaction, config, data, setHiddenLoans }) {
 
       {step === "amount" && (
         <div className="flex flex-col items-center gap-6 p-6 flex-1 overflow-y-auto">
-          <div className="w-full max-w-xs grid grid-cols-2 gap-2">
-            <button
-              onClick={() => setCurrency("CHF")}
-              className={`rounded-xl py-2 text-sm font-semibold ${
-                currency === "CHF" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500"
-              }`}
-            >
-              🇨🇭 CHF
-            </button>
-            <button
-              onClick={() => setCurrency("ARS")}
-              className={`rounded-xl py-2 text-sm font-semibold ${
-                currency === "ARS" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500"
-              }`}
-            >
-              🇦🇷 ARS
-            </button>
-          </div>
           <div className="text-4xl font-bold tabular-nums" style={{ color: rootAccent }}>
             {currency} {amount}
           </div>
@@ -1703,7 +1772,10 @@ function App() {
   return (
     <div className="w-full h-[100dvh] bg-slate-50 flex flex-col overflow-hidden">
       <div className="bg-slate-900 text-white px-4 py-3 flex items-center justify-between pt-safe">
-        <span className="font-bold">Mango</span>
+        <span className="flex items-center gap-2 font-bold">
+          <img src="apple-touch-icon.png" alt="" className="w-7 h-7 rounded-lg" />
+          Mango
+        </span>
         <div className="flex items-center gap-3">
           {saveError && <span className="text-[10px] text-amber-300">⚠ sin conexión al Sheet</span>}
           {showCurrencyToggle && (
