@@ -538,15 +538,17 @@ function FinancialHealthPanel({ data, currency, setDailyEstimate }) {
     const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
     const mk = monthKey(d);
     const monthTx = data.transactions.filter((t) => t.currency === currency && effMonth(t) === mk);
-    const fijosReal = monthTx
-      .filter((t) => FIXED_CAT_KEYS.includes(t.categoryKey))
-      .reduce((s, t) => s + t.amount, 0);
-    const credito = monthTx
-      .filter((t) => LOAN_CAT_KEYS.includes(t.categoryKey) || t.paymentMethod === "credito")
-      .reduce((s, t) => s + t.amount, 0);
+    // Cada gasto cae en UNA sola categoría (sin doble conteo), para que
+    // fijos + crédito + variables sume siempre exacto el gasto total del mes.
+    let fijosReal = 0, credito = 0, variables = 0;
+    monthTx.forEach((t) => {
+      if (FIXED_CAT_KEYS.includes(t.categoryKey)) fijosReal += t.amount;
+      else if (LOAN_CAT_KEYS.includes(t.categoryKey) || t.paymentMethod === "credito") credito += t.amount;
+      else variables += t.amount;
+    });
     const gastoTotal = monthTx.reduce((s, t) => s + t.amount, 0);
     const ingreso = data.income[`${mk}:${currency}`]?.amount || 0;
-    return { mk, ingreso, fijosReal, credito, gastoTotal };
+    return { mk, ingreso, fijosReal, credito, variables, gastoTotal };
   });
   // Meses futuros (2do, 3ro...): los gastos fijos todavía no están cargados, así
   // que se estiman igual al mes en curso (1ro de la serie) — el crédito, en
@@ -592,7 +594,7 @@ function FinancialHealthPanel({ data, currency, setDailyEstimate }) {
     setEditingDaily(false);
   }
 
-  const maxVal = Math.max(1, ...monthsData.flatMap((m) => [m.ingreso, m.gastoComprometido]));
+  const maxVal = Math.max(1, ...monthsData.flatMap((m) => [m.ingreso, m.gastoFijo + m.credito + m.variables]));
   const panelTitle = currency === "CHF" ? "Salud del mango suizo (CHF)" : "Salud del mango argentino (ARS)";
 
   return (
@@ -641,6 +643,7 @@ function FinancialHealthPanel({ data, currency, setDailyEstimate }) {
                 style={{ width: `${(m.gastoFijo / maxVal) * 100}%`, opacity: m.gastoFijoEstimado ? 0.55 : 1 }}
               />
               <div className="h-full bg-orange-400" style={{ width: `${(m.credito / maxVal) * 100}%` }} />
+              <div className="h-full bg-yellow-400" style={{ width: `${(m.variables / maxVal) * 100}%` }} />
             </div>
           </div>
         ))}
@@ -648,6 +651,7 @@ function FinancialHealthPanel({ data, currency, setDailyEstimate }) {
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400" /> Ingreso</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-400" /> Gastos fijos</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400" /> Crédito</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-400" /> Gastos variables</span>
         </div>
       </div>
     </div>
@@ -1907,8 +1911,10 @@ function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
   const [showTransfer, setShowTransfer] = useState(false);
   const [transferAmount, setTransferAmount] = useState("0");
   const [transferTarget, setTransferTarget] = useState("CHF");
+  const [transferRate, setTransferRate] = useState("");
   const [transferCHF, setTransferCHF] = useState(0);
   const [transferARS, setTransferARS] = useState(0);
+  const [transferredFromAhorro, setTransferredFromAhorro] = useState(0);
 
   const now = new Date();
   const currentMK = monthKey(now);
@@ -1930,7 +1936,7 @@ function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
   // planificación, no mueve plata real entre pestañas.
   const excedenteCHF = excedenteReal("CHF") - totalGuardado("CHF") + transferCHF;
   const excedenteARS = excedenteReal("ARS") - totalGuardado("ARS") + transferARS;
-  const disponible = data.savings.filter((m) => !m.purpose).reduce((s, m) => s + m.amount, 0) - transferCHF - transferARS;
+  const disponible = data.savings.filter((m) => !m.purpose).reduce((s, m) => s + m.amount, 0) - transferredFromAhorro;
 
   function startNew(type) {
     setEditingId(null);
@@ -1984,9 +1990,13 @@ function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
   function doTransfer() {
     const n = parseFloat(transferAmount);
     if (!n) return;
-    if (transferTarget === "CHF") setTransferCHF((v) => v + n);
-    else setTransferARS((v) => v + n);
+    const rate = parseFloat(transferRate);
+    const finalAmount = rate ? n * rate : n;
+    if (transferTarget === "CHF") setTransferCHF((v) => v + finalAmount);
+    else setTransferARS((v) => v + finalAmount);
+    setTransferredFromAhorro((v) => v + n);
     setTransferAmount("0");
+    setTransferRate("");
     setShowTransfer(false);
   }
 
@@ -2014,7 +2024,7 @@ function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
       </button>
 
       {showTransfer && (
-        <div className="bg-slate-50 rounded-2xl p-3 flex flex-col gap-2">
+        <div className="bg-slate-50 rounded-2xl p-3 flex flex-col gap-3">
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => setTransferTarget("CHF")}
@@ -2029,17 +2039,31 @@ function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
               🇦🇷 A excedente ARS
             </button>
           </div>
-          <input
-            type="number"
-            value={transferAmount}
-            onChange={(e) => setTransferAmount(e.target.value)}
-            placeholder="Monto a transferir"
-            className="border-2 border-slate-200 rounded-xl px-3 py-2 text-sm"
-          />
+
+          <div className="text-2xl font-bold text-center tabular-nums text-slate-800">{transferAmount}</div>
+          <Keypad value={transferAmount} onChange={setTransferAmount} />
+
+          <div>
+            <label className="text-xs text-slate-500">Tasa de cambio (opcional — dejar vacío si no convertís)</label>
+            <input
+              type="number"
+              value={transferRate}
+              onChange={(e) => setTransferRate(e.target.value)}
+              placeholder="Ej: 1200"
+              className="w-full border-2 border-slate-200 rounded-xl px-3 py-2 text-sm"
+            />
+          </div>
+
+          {parseFloat(transferRate) > 0 && parseFloat(transferAmount) > 0 && (
+            <div className="text-xs text-slate-500 text-center">
+              Equivale a {fmt(parseFloat(transferAmount) * parseFloat(transferRate), transferTarget)}
+            </div>
+          )}
+
           <button
             onClick={doTransfer}
             disabled={!parseFloat(transferAmount)}
-            className="rounded-xl py-2 text-sm font-semibold text-white bg-emerald-500 disabled:opacity-40"
+            className="rounded-xl py-2.5 text-sm font-semibold text-white bg-emerald-500 disabled:opacity-40"
           >
             Transferir
           </button>
