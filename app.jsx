@@ -1217,7 +1217,8 @@ function CategoryDetail({ transactions, currency }) {
 
   const byCat = {};
   transactions.forEach((t) => {
-    if (!byCat[t.categoryKey]) byCat[t.categoryKey] = { name: t.category, color: t.categoryColor, value: 0, items: [] };
+    const currentName = CAT_BY_KEY[t.categoryKey]?.label || t.category;
+    if (!byCat[t.categoryKey]) byCat[t.categoryKey] = { name: currentName, color: t.categoryColor, value: 0, items: [] };
     byCat[t.categoryKey].value += t.amount;
     byCat[t.categoryKey].items.push(t);
   });
@@ -1564,7 +1565,8 @@ function HistorialTab({ data, currency, setCurrency, deleteTransaction }) {
 
   const groups = {};
   filtered.forEach((t) => {
-    if (!groups[t.categoryKey]) groups[t.categoryKey] = { name: t.category, color: t.categoryColor, items: [], total: 0 };
+    const currentName = CAT_BY_KEY[t.categoryKey]?.label || t.category;
+    if (!groups[t.categoryKey]) groups[t.categoryKey] = { name: currentName, color: t.categoryColor, items: [], total: 0 };
     groups[t.categoryKey].items.push(t);
     groups[t.categoryKey].total += t.amount;
   });
@@ -1621,7 +1623,7 @@ function HistorialTab({ data, currency, setCurrency, deleteTransaction }) {
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-semibold text-slate-800 truncate">
-                          {[t.subcategory, t.detail].filter(Boolean).join(" › ") || t.category}
+                          {[t.subcategory, t.detail].filter(Boolean).join(" › ") || CAT_BY_KEY[t.categoryKey]?.label || t.category}
                         </div>
                         <div className="text-xs text-slate-400 truncate">
                           {t.concept ? `${t.concept} · ` : ""}{d.toLocaleDateString("es-AR")} {d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
