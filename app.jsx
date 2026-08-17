@@ -262,6 +262,30 @@ const CATS_ARS = [
     subs: null,
   },
   {
+    key: "viajes_ar", label: "Viajes", emoji: "✈️", icon: "icon-viajes.png",
+    color: "#35543a", light: "#dde8dc", dark: "#1c2e1e",
+    subs: [
+      {
+        key: "grecia", label: "Grecia", emoji: "🇬🇷",
+        subs: [
+          { key: "pasajes", label: "Pasajes" },
+          { key: "hospedaje", label: "Hospedaje" },
+          { key: "comida", label: "Comida" },
+          { key: "compritas", label: "Compritas" },
+        ],
+      },
+      {
+        key: "marruecos", label: "Marruecos", emoji: "🇲🇦",
+        subs: [
+          { key: "pasajes", label: "Pasajes" },
+          { key: "hospedaje", label: "Hospedaje" },
+          { key: "comida", label: "Comida" },
+          { key: "compritas", label: "Compritas" },
+        ],
+      },
+    ],
+  },
+  {
     key: "prestamos_ar", label: "Préstamos", emoji: "💸", icon: "icon-prestamos.png",
     color: "#c17817", light: "#fbe8cc", dark: "#6b3f0a",
     subs: [
@@ -615,7 +639,7 @@ function FinancialHealthPanel({ data, currency, setDailyEstimate }) {
   }
 
   const maxVal = Math.max(1, ...monthsData.flatMap((m) => [m.ingreso, m.gastoFijo + m.credito + m.variables]));
-  const panelTitle = currency === "CHF" ? "Salud del mango suizo (CHF)" : "Salud del mango argentino (ARS)";
+  const panelTitle = currency === "CHF" ? "La salud del mango suizo" : "La salud del mango argentino";
 
   return (
     <div className="mx-4 mb-4 bg-white rounded-2xl border border-slate-100 p-4 flex flex-col gap-3">
@@ -874,12 +898,8 @@ function EntryTab({ addTransaction, config, data, setHiddenLoans, setFxRate, set
                 <button
                   key={c.key}
                   onClick={() => pickCategory(c)}
-                  style={{
-                    backgroundColor: hexToRgba(c.color, 0.5),
-                    border: `2px solid ${c.color}`,
-                    color: c.dark,
-                  }}
-                  className="rounded-3xl px-2 pt-2 pb-2 h-36 flex flex-col items-center shadow-sm active:scale-95 transition-transform overflow-hidden"
+                  style={{ color: c.dark }}
+                  className="rounded-3xl px-2 pt-2 pb-2 h-36 flex flex-col items-center active:scale-95 transition-transform overflow-hidden"
                 >
                   <div className="flex-1 w-full min-h-0 flex items-center justify-center">
                     {c.icon ? (
@@ -1275,9 +1295,9 @@ function CountryToggle({ currency, setCurrency }) {
   );
 }
 
-function MonthSummary({ mk, currency, ingreso, transactions, incomeMovements, onAddIncome, onDeleteIncome }) {
-  const [showIncome, setShowIncome] = useState(false);
-  const [showDetail, setShowDetail] = useState(false);
+function MonthSummary({ mk, currency, ingreso, transactions, incomeMovements, onAddIncome, onDeleteIncome, defaultOpen }) {
+  const [showIncome, setShowIncome] = useState(defaultOpen === "ingreso");
+  const [showDetail, setShowDetail] = useState(defaultOpen === "gasto");
   const [amount, setAmount] = useState("0");
   const [concept, setConcept] = useState("");
   const [confirmId, setConfirmId] = useState(null);
@@ -1298,14 +1318,14 @@ function MonthSummary({ mk, currency, ingreso, transactions, incomeMovements, on
       <div className="grid grid-cols-3 gap-2">
         <button
           onClick={() => setShowIncome((v) => !v)}
-          className="bg-emerald-50 rounded-2xl p-3 text-center active:bg-emerald-100"
+          className={`bg-emerald-50 rounded-2xl p-3 text-center active:bg-emerald-100 ${showIncome ? "border-2 border-emerald-400" : "border-2 border-transparent"}`}
         >
           <div className="text-xs text-emerald-700 font-medium">Ingresos</div>
           <div className="text-sm font-bold text-emerald-800">{fmt(ingreso, currency)}</div>
         </button>
         <button
           onClick={() => setShowDetail((v) => !v)}
-          className="bg-rose-50 rounded-2xl p-3 text-center active:bg-rose-100"
+          className={`bg-rose-50 rounded-2xl p-3 text-center active:bg-rose-100 ${showDetail ? "border-2 border-rose-400" : "border-2 border-transparent"}`}
         >
           <div className="text-xs text-rose-700 font-medium">Gastos</div>
           <div className="text-sm font-bold text-rose-800">{fmt(gasto, currency)}</div>
@@ -1408,6 +1428,7 @@ function BalanceTab({ data, currency, setCurrency, addIncomeMovement, deleteInco
           incomeMovements={(data.incomeMovements || []).filter((m) => m.monthKey === currentMK && m.currency === currency)}
           onAddIncome={addIncomeMovement}
           onDeleteIncome={deleteIncomeMovement}
+          defaultOpen="gasto"
         />
       </div>
     </div>
@@ -1688,21 +1709,21 @@ function AhorroTab({ data, addSavingsMovement, deleteSavingsMovement }) {
   }
 
   return (
-    <div className="flex flex-col items-center gap-6 p-6 h-full overflow-y-auto">
+    <div className="flex flex-col items-center gap-4 p-6 h-full overflow-y-auto">
       {toast && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-4 py-2 rounded-full text-sm shadow-lg z-50">
           {toast}
         </div>
       )}
 
-      <div className="bg-emerald-50 rounded-2xl px-6 py-3 text-center w-full max-w-xs">
-        <img src="icon-ahorro.png" alt="" className="w-16 h-16 object-contain mx-auto mb-1" />
-        <div className="text-xs text-emerald-700 font-medium">Ahorro acumulado</div>
-        <div className="text-2xl font-bold text-emerald-800">{fmt(total)}</div>
+      <div className="bg-emerald-50 rounded-2xl px-6 py-5 text-center w-full">
+        <img src="icon-ahorro.png" alt="" className="w-24 h-24 object-contain mx-auto mb-2" />
+        <div className="text-sm text-emerald-700 font-medium">Ahorro acumulado</div>
+        <div className="text-4xl font-bold text-emerald-800 mt-1">{fmt(total)}</div>
         {purposeRows.length > 0 && (
-          <div className="mt-2 pt-2 border-t border-emerald-100 flex flex-col gap-0.5">
+          <div className="mt-3 pt-3 border-t border-emerald-100 flex flex-col gap-1">
             {purposeRows.map(([label, val]) => (
-              <div key={label} className="flex items-center justify-between text-xs text-emerald-700">
+              <div key={label} className="flex items-center justify-between text-sm text-emerald-700">
                 <span className="truncate pr-2">{label}</span>
                 <span className="font-semibold whitespace-nowrap">{fmt(val)}</span>
               </div>
@@ -1711,7 +1732,7 @@ function AhorroTab({ data, addSavingsMovement, deleteSavingsMovement }) {
         )}
       </div>
 
-      <div className={`text-4xl font-bold tabular-nums ${amount.startsWith("-") ? "text-rose-600" : "text-emerald-700"}`}>
+      <div className={`text-xl font-bold tabular-nums ${amount.startsWith("-") ? "text-rose-600" : "text-emerald-700"}`}>
         {CURRENCY} {amount}
       </div>
       <Keypad value={amount} onChange={setAmount} />
