@@ -1297,13 +1297,21 @@ function CountryToggle({ currency, setCurrency }) {
 }
 
 function MonthSummary({ mk, currency, ingreso, transactions, incomeMovements, onAddIncome, onDeleteIncome, defaultOpen }) {
-  const [showIncome, setShowIncome] = useState(defaultOpen === "ingreso");
-  const [showDetail, setShowDetail] = useState(defaultOpen === "gasto");
+  const [activePanel, setActivePanel] = useState(defaultOpen || null); // null | "ingreso" | "gasto"
   const [amount, setAmount] = useState("0");
   const [concept, setConcept] = useState("");
   const [confirmId, setConfirmId] = useState(null);
   const gasto = transactions.reduce((s, t) => s + t.amount, 0);
   const saldo = ingreso - gasto;
+  const showIncome = activePanel === "ingreso";
+  const showDetail = activePanel === "gasto";
+
+  function toggleIncome() {
+    setActivePanel((v) => (v === "ingreso" ? null : "ingreso"));
+  }
+  function toggleDetail() {
+    setActivePanel((v) => (v === "gasto" ? null : "gasto"));
+  }
 
   function addMovement() {
     const n = parseFloat(amount);
@@ -1318,14 +1326,14 @@ function MonthSummary({ mk, currency, ingreso, transactions, incomeMovements, on
       <h3 className="text-sm font-bold text-slate-700 capitalize">{monthLabel(mk)}</h3>
       <div className="grid grid-cols-3 gap-2">
         <button
-          onClick={() => setShowIncome((v) => !v)}
+          onClick={toggleIncome}
           className={`bg-emerald-50 rounded-2xl p-3 text-center active:bg-emerald-100 ${showIncome ? "border-2 border-emerald-400" : "border-2 border-transparent"}`}
         >
           <div className="text-xs text-emerald-700 font-medium">Ingresos</div>
           <div className="text-sm font-bold text-emerald-800">{fmt(ingreso, currency)}</div>
         </button>
         <button
-          onClick={() => setShowDetail((v) => !v)}
+          onClick={toggleDetail}
           className={`bg-rose-50 rounded-2xl p-3 text-center active:bg-rose-100 ${showDetail ? "border-2 border-rose-400" : "border-2 border-transparent"}`}
         >
           <div className="text-xs text-rose-700 font-medium">Gastos</div>
@@ -1496,6 +1504,7 @@ function ProximosMesesTab({ data, currency, setCurrency, addIncomeMovement, dele
             incomeMovements={(data.incomeMovements || []).filter((mv) => mv.monthKey === m.mk && mv.currency === currency)}
             onAddIncome={addIncomeMovement}
             onDeleteIncome={deleteIncomeMovement}
+            defaultOpen="gasto"
           />
         ))}
       </div>
