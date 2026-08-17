@@ -1964,6 +1964,7 @@ function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
 
   const [showTransfer, setShowTransfer] = useState(false);
   const [transferAmount, setTransferAmount] = useState("0");
+  const [transferOrigin, setTransferOrigin] = useState("USD");
   const [transferTarget, setTransferTarget] = useState("CHF");
   const [transferRate, setTransferRate] = useState("");
   const [transferCHF, setTransferCHF] = useState(0);
@@ -2041,11 +2042,14 @@ function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
     setAddingType(null);
   }
 
+  const needsRate = transferOrigin !== transferTarget;
+
   function doTransfer() {
     const n = parseFloat(transferAmount);
     if (!n) return;
     const rate = parseFloat(transferRate);
-    const finalAmount = rate ? n * rate : n;
+    const finalAmount = needsRate ? (rate ? n * rate : 0) : n;
+    if (!finalAmount) return;
     if (transferTarget === "CHF") setTransferCHF((v) => v + finalAmount);
     else setTransferARS((v) => v + finalAmount);
     setTransferredFromAhorro((v) => v + n);
@@ -2079,36 +2083,67 @@ function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
 
       {showTransfer && (
         <div className="bg-slate-50 rounded-2xl p-3 flex flex-col gap-3">
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() => setTransferTarget("CHF")}
-              className={`rounded-xl py-2 text-sm font-semibold ${transferTarget === "CHF" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"}`}
-            >
-              🇨🇭 A excedente CHF
-            </button>
-            <button
-              onClick={() => setTransferTarget("ARS")}
-              className={`rounded-xl py-2 text-sm font-semibold ${transferTarget === "ARS" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"}`}
-            >
-              🇦🇷 A excedente ARS
-            </button>
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">Origen (cómo pensás este monto)</label>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                onClick={() => setTransferOrigin("USD")}
+                className={`rounded-xl py-2 text-xs font-semibold ${transferOrigin === "USD" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"}`}
+              >
+                💵 USD
+              </button>
+              <button
+                onClick={() => setTransferOrigin("CHF")}
+                className={`rounded-xl py-2 text-xs font-semibold ${transferOrigin === "CHF" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"}`}
+              >
+                🇨🇭 CHF
+              </button>
+              <button
+                onClick={() => setTransferOrigin("ARS")}
+                className={`rounded-xl py-2 text-xs font-semibold ${transferOrigin === "ARS" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"}`}
+              >
+                🇦🇷 ARS
+              </button>
+            </div>
           </div>
-
-          <div className="text-2xl font-bold text-center tabular-nums text-slate-800">{transferAmount}</div>
-          <Keypad value={transferAmount} onChange={setTransferAmount} />
 
           <div>
-            <label className="text-xs text-slate-500">Tasa de cambio (opcional — dejar vacío si no convertís)</label>
-            <input
-              type="number"
-              value={transferRate}
-              onChange={(e) => setTransferRate(e.target.value)}
-              placeholder="Ej: 1200"
-              className="w-full border-2 border-slate-200 rounded-xl px-3 py-2 text-sm"
-            />
+            <label className="text-xs text-slate-500 block mb-1">Destino</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setTransferTarget("CHF")}
+                className={`rounded-xl py-2 text-sm font-semibold ${transferTarget === "CHF" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"}`}
+              >
+                🇨🇭 Excedente CHF
+              </button>
+              <button
+                onClick={() => setTransferTarget("ARS")}
+                className={`rounded-xl py-2 text-sm font-semibold ${transferTarget === "ARS" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"}`}
+              >
+                🇦🇷 Excedente ARS
+              </button>
+            </div>
           </div>
 
-          {parseFloat(transferRate) > 0 && parseFloat(transferAmount) > 0 && (
+          <div className="text-2xl font-bold text-center tabular-nums text-slate-800">{transferOrigin} {transferAmount}</div>
+          <Keypad value={transferAmount} onChange={setTransferAmount} />
+
+          {needsRate ? (
+            <div>
+              <label className="text-xs text-slate-500">Tasa de cambio (1 {transferOrigin} = ? {transferTarget})</label>
+              <input
+                type="number"
+                value={transferRate}
+                onChange={(e) => setTransferRate(e.target.value)}
+                placeholder="Ej: 1200"
+                className="w-full border-2 border-slate-200 rounded-xl px-3 py-2 text-sm"
+              />
+            </div>
+          ) : (
+            <p className="text-[10px] text-slate-400 text-center">Origen y destino son la misma moneda — no hace falta convertir.</p>
+          )}
+
+          {needsRate && parseFloat(transferRate) > 0 && parseFloat(transferAmount) > 0 && (
             <div className="text-xs text-slate-500 text-center">
               Equivale a {fmt(parseFloat(transferAmount) * parseFloat(transferRate), transferTarget)}
             </div>
@@ -2116,7 +2151,7 @@ function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
 
           <button
             onClick={doTransfer}
-            disabled={!parseFloat(transferAmount)}
+            disabled={!parseFloat(transferAmount) || (needsRate && !parseFloat(transferRate))}
             className="rounded-xl py-2.5 text-sm font-semibold text-white bg-emerald-500 disabled:opacity-40"
           >
             Transferir
