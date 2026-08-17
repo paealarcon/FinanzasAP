@@ -348,7 +348,7 @@ function computeChargeMonth(date, paymentMethod, cierreDay) {
 
 function useSharedData() {
   const DEFAULT_CONFIG = { cierreDay: 15, lastPaymentMethod: "no_credito", lastCurrency: "CHF", fxRate: "", dailyEstimateCHF: 100, dailyEstimateARS: 40000 };
-  const [data, setData] = useState({ transactions: [], income: {}, savings: [], assets: [], proyectos: [], config: DEFAULT_CONFIG });
+  const [data, setData] = useState({ transactions: [], income: {}, incomeMovements: [], savings: [], assets: [], proyectos: [], config: DEFAULT_CONFIG });
   const [ready, setReady] = useState(false);
   const [saveError, setSaveError] = useState(false);
 
@@ -356,6 +356,7 @@ function useSharedData() {
     setData({
       transactions: fresh.transactions || [],
       income: fresh.income || {},
+      incomeMovements: fresh.incomeMovements || [],
       savings: fresh.savings || [],
       assets: fresh.assets || [],
       proyectos: fresh.proyectos || [],
@@ -399,13 +400,32 @@ function useSharedData() {
     mutate({ action: "deleteTransaction", id });
   }, [mutate]);
 
-  const setIncome = useCallback((mk, currency, amount) => {
-    const incomeKey = `${mk}:${currency}`;
-    setData((prev) => ({
-      ...prev,
-      income: { ...prev.income, [incomeKey]: { amount, updatedAt: new Date().toISOString() } },
-    }));
-    mutate({ action: "setIncome", monthKey: mk, currency, amount });
+  const addIncomeMovement = useCallback((mv) => {
+    const key = `${mv.monthKey}:${mv.currency}`;
+    setData((prev) => {
+      const prevAmt = prev.income[key]?.amount || 0;
+      return {
+        ...prev,
+        incomeMovements: [mv, ...(prev.incomeMovements || [])],
+        income: { ...prev.income, [key]: { amount: prevAmt + mv.amount, updatedAt: mv.ts } },
+      };
+    });
+    mutate({ action: "addIncome", mv });
+  }, [mutate]);
+
+  const deleteIncomeMovement = useCallback((id) => {
+    setData((prev) => {
+      const mv = (prev.incomeMovements || []).find((m) => m.id === id);
+      if (!mv) return prev;
+      const key = `${mv.monthKey}:${mv.currency}`;
+      const prevAmt = prev.income[key]?.amount || 0;
+      return {
+        ...prev,
+        incomeMovements: (prev.incomeMovements || []).filter((m) => m.id !== id),
+        income: { ...prev.income, [key]: { amount: prevAmt - mv.amount, updatedAt: new Date().toISOString() } },
+      };
+    });
+    mutate({ action: "deleteIncome", id });
   }, [mutate]);
 
   const addSavingsMovement = useCallback((mv) => {
@@ -473,7 +493,7 @@ function useSharedData() {
   }, [mutate]);
 
   return {
-    data, ready, saveError, refresh, addTransaction, deleteTransaction, setIncome,
+    data, ready, saveError, refresh, addTransaction, deleteTransaction, addIncomeMovement, deleteIncomeMovement,
     addSavingsMovement, deleteSavingsMovement, setCierreDay, setFxRate, setDailyEstimate, setHiddenLoans, saveAsset, deleteAsset,
     saveProyecto, deleteProyecto,
   };
@@ -639,19 +659,19 @@ function FinancialHealthPanel({ data, currency, setDailyEstimate }) {
             </div>
             <div className="h-2 rounded-full bg-slate-100 overflow-hidden flex">
               <div
-                className="h-full bg-rose-400"
+                className="h-full bg-yellow-400"
                 style={{ width: `${(m.gastoFijo / maxVal) * 100}%`, opacity: m.gastoFijoEstimado ? 0.55 : 1 }}
               />
               <div className="h-full bg-orange-400" style={{ width: `${(m.credito / maxVal) * 100}%` }} />
-              <div className="h-full bg-yellow-400" style={{ width: `${(m.variables / maxVal) * 100}%` }} />
+              <div className="h-full bg-rose-400" style={{ width: `${(m.variables / maxVal) * 100}%` }} />
             </div>
           </div>
         ))}
         <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-0.5 flex-wrap">
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400" /> Ingreso</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-400" /> Gastos fijos</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-400" /> Gastos fijos</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400" /> Crédito</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-400" /> Gastos variables</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-400" /> Gastos variables</span>
         </div>
       </div>
     </div>
@@ -1255,72 +1275,96 @@ function CountryToggle({ currency, setCurrency }) {
   );
 }
 
-function MonthSummary({ mk, currency, ingreso, transactions, onSaveIncome }) {
-  const [editing, setEditing] = useState(false);
-  const [amount, setAmount] = useState(String(ingreso || 0));
+function MonthSummary({ mk, currency, ingreso, transactions, incomeMovements, onAddIncome, onDeleteIncome }) {
+  const [showIncome, setShowIncome] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
+  const [amount, setAmount] = useState("0");
+  const [concept, setConcept] = useState("");
+  const [confirmId, setConfirmId] = useState(null);
   const gasto = transactions.reduce((s, t) => s + t.amount, 0);
   const saldo = ingreso - gasto;
 
-  function start() {
-    setAmount(ingreso ? String(ingreso) : "0");
-    setEditing(true);
-  }
-  function save() {
+  function addMovement() {
     const n = parseFloat(amount);
     if (!n) return;
-    onSaveIncome(mk, currency, n);
-    setEditing(false);
+    onAddIncome({ id: uid(), monthKey: mk, currency, amount: n, concept: concept.trim() || null, ts: new Date().toISOString() });
+    setAmount("0");
+    setConcept("");
   }
 
   return (
     <div className="flex flex-col gap-2">
       <h3 className="text-sm font-bold text-slate-700 capitalize">{monthLabel(mk)}</h3>
-      {!editing ? (
-        <div className="grid grid-cols-3 gap-2">
-          <button
-            onClick={start}
-            className="bg-emerald-50 rounded-2xl p-3 text-center active:bg-emerald-100"
-          >
-            <div className="text-xs text-emerald-700 font-medium">Ingresos</div>
-            <div className="text-sm font-bold text-emerald-800">{fmt(ingreso, currency)}</div>
-          </button>
-          <button
-            onClick={() => setShowDetail((v) => !v)}
-            className="bg-rose-50 rounded-2xl p-3 text-center active:bg-rose-100"
-          >
-            <div className="text-xs text-rose-700 font-medium">Gastos</div>
-            <div className="text-sm font-bold text-rose-800">{fmt(gasto, currency)}</div>
-          </button>
-          <div className={`rounded-2xl p-3 text-center ${saldo >= 0 ? "bg-sky-50" : "bg-orange-50"}`}>
-            <div className={`text-xs font-medium ${saldo >= 0 ? "text-sky-700" : "text-orange-700"}`}>Saldo</div>
-            <div className={`text-sm font-bold ${saldo >= 0 ? "text-sky-800" : "text-orange-800"}`}>{fmt(saldo, currency)}</div>
-          </div>
+      <div className="grid grid-cols-3 gap-2">
+        <button
+          onClick={() => setShowIncome((v) => !v)}
+          className="bg-emerald-50 rounded-2xl p-3 text-center active:bg-emerald-100"
+        >
+          <div className="text-xs text-emerald-700 font-medium">Ingresos</div>
+          <div className="text-sm font-bold text-emerald-800">{fmt(ingreso, currency)}</div>
+        </button>
+        <button
+          onClick={() => setShowDetail((v) => !v)}
+          className="bg-rose-50 rounded-2xl p-3 text-center active:bg-rose-100"
+        >
+          <div className="text-xs text-rose-700 font-medium">Gastos</div>
+          <div className="text-sm font-bold text-rose-800">{fmt(gasto, currency)}</div>
+        </button>
+        <div className={`rounded-2xl p-3 text-center ${saldo >= 0 ? "bg-sky-50" : "bg-orange-50"}`}>
+          <div className={`text-xs font-medium ${saldo >= 0 ? "text-sky-700" : "text-orange-700"}`}>Saldo</div>
+          <div className={`text-sm font-bold ${saldo >= 0 ? "text-sky-800" : "text-orange-800"}`}>{fmt(saldo, currency)}</div>
         </div>
-      ) : (
-        <div className="flex flex-col items-center gap-3 bg-slate-50 rounded-2xl p-4">
-          <div className="text-2xl font-bold tabular-nums text-emerald-700">
+      </div>
+
+      {showIncome && (
+        <div className="flex flex-col gap-3 bg-slate-50 rounded-2xl p-4 mt-1">
+          <div className="text-2xl font-bold tabular-nums text-emerald-700 text-center">
             {currency} {amount}
           </div>
           <Keypad value={amount} onChange={setAmount} />
-          <div className="grid grid-cols-2 gap-2 w-full max-w-xs">
-            <button
-              onClick={() => setEditing(false)}
-              className="rounded-xl py-2.5 text-sm font-semibold text-slate-500 bg-slate-200"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={save}
-              disabled={!parseFloat(amount)}
-              className="rounded-xl py-2.5 text-sm font-semibold text-white bg-emerald-500 disabled:opacity-40"
-            >
-              Guardar
-            </button>
-          </div>
+          <input
+            value={concept}
+            onChange={(e) => setConcept(e.target.value)}
+            placeholder="Concepto (ej: Sueldo, Freelance)"
+            className="border-2 border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-slate-400"
+          />
+          <button
+            onClick={addMovement}
+            disabled={!parseFloat(amount)}
+            className="rounded-xl py-2.5 text-sm font-semibold text-white bg-emerald-500 disabled:opacity-40"
+          >
+            + Agregar ingreso
+          </button>
+
+          {incomeMovements.length > 0 && (
+            <div className="flex flex-col gap-2 pt-1 border-t border-slate-200">
+              {incomeMovements.map((m) => (
+                <div key={m.id} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 text-sm">
+                  <span className="truncate pr-2 text-slate-600">{m.concept || "Ingreso"}</span>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="font-semibold text-emerald-700">{fmt(m.amount, currency)}</span>
+                    {confirmId === m.id ? (
+                      <>
+                        <button
+                          onClick={() => { onDeleteIncome(m.id); setConfirmId(null); }}
+                          className="text-xs font-bold text-white bg-rose-500 rounded-lg px-2 py-1"
+                        >
+                          Borrar
+                        </button>
+                        <button onClick={() => setConfirmId(null)} className="text-xs text-slate-400">Cancelar</button>
+                      </>
+                    ) : (
+                      <button onClick={() => setConfirmId(m.id)} className="text-slate-300 active:text-rose-500">✕</button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
-      {showDetail && !editing && (
+
+      {showDetail && (
         <div className="bg-white rounded-2xl border border-slate-100 p-4 mt-1">
           <CategoryDetail transactions={transactions} currency={currency} />
         </div>
@@ -1329,7 +1373,7 @@ function MonthSummary({ mk, currency, ingreso, transactions, onSaveIncome }) {
   );
 }
 
-function BalanceTab({ data, currency, setCurrency, setIncome }) {
+function BalanceTab({ data, currency, setCurrency, addIncomeMovement, deleteIncomeMovement }) {
   const now = new Date();
   const currentMK = monthKey(now);
 
@@ -1356,7 +1400,15 @@ function BalanceTab({ data, currency, setCurrency, setIncome }) {
           </div>
         )}
 
-        <MonthSummary mk={currentMK} currency={currency} ingreso={ingreso} transactions={monthTx} onSaveIncome={setIncome} />
+        <MonthSummary
+          mk={currentMK}
+          currency={currency}
+          ingreso={ingreso}
+          transactions={monthTx}
+          incomeMovements={(data.incomeMovements || []).filter((m) => m.monthKey === currentMK && m.currency === currency)}
+          onAddIncome={addIncomeMovement}
+          onDeleteIncome={deleteIncomeMovement}
+        />
       </div>
     </div>
   );
@@ -1366,7 +1418,7 @@ function BalanceTab({ data, currency, setCurrency, setIncome }) {
 /* Pestaña: Próximos meses (gastos ya comprometidos por crédito)       */
 /* ------------------------------------------------------------------ */
 
-function ProximosMesesTab({ data, currency, setCurrency, setIncome, setCierreDay }) {
+function ProximosMesesTab({ data, currency, setCurrency, addIncomeMovement, deleteIncomeMovement, setCierreDay }) {
   const now = new Date();
   const [editingCierre, setEditingCierre] = useState(false);
   const [cierreInput, setCierreInput] = useState(String(data.config.cierreDay));
@@ -1419,7 +1471,9 @@ function ProximosMesesTab({ data, currency, setCurrency, setIncome, setCierreDay
             currency={currency}
             ingreso={m.ingresoMes}
             transactions={m.monthTx}
-            onSaveIncome={setIncome}
+            incomeMovements={(data.incomeMovements || []).filter((mv) => mv.monthKey === m.mk && mv.currency === currency)}
+            onAddIncome={addIncomeMovement}
+            onDeleteIncome={deleteIncomeMovement}
           />
         ))}
       </div>
@@ -2256,7 +2310,7 @@ function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
 
 function App() {
   const {
-    data, ready, saveError, refresh, addTransaction, deleteTransaction, setIncome,
+    data, ready, saveError, refresh, addTransaction, deleteTransaction, addIncomeMovement, deleteIncomeMovement,
     setCierreDay, setFxRate, setDailyEstimate, setHiddenLoans, saveAsset, deleteAsset, addSavingsMovement, deleteSavingsMovement,
     saveProyecto, deleteProyecto,
   } = useSharedData();
@@ -2298,9 +2352,9 @@ function App() {
         ) : tab === "entry" ? (
           <EntryTab addTransaction={addTransaction} config={data.config} data={data} setHiddenLoans={setHiddenLoans} setFxRate={setFxRate} setDailyEstimate={setDailyEstimate} />
         ) : tab === "balance" ? (
-          <BalanceTab data={data} currency={viewCurrency} setCurrency={setViewCurrency} setIncome={setIncome} />
+          <BalanceTab data={data} currency={viewCurrency} setCurrency={setViewCurrency} addIncomeMovement={addIncomeMovement} deleteIncomeMovement={deleteIncomeMovement} />
         ) : tab === "proximos" ? (
-          <ProximosMesesTab data={data} currency={viewCurrency} setCurrency={setViewCurrency} setIncome={setIncome} setCierreDay={setCierreDay} />
+          <ProximosMesesTab data={data} currency={viewCurrency} setCurrency={setViewCurrency} addIncomeMovement={addIncomeMovement} deleteIncomeMovement={deleteIncomeMovement} setCierreDay={setCierreDay} />
         ) : tab === "ahorro" ? (
           <AhorroTab data={data} addSavingsMovement={addSavingsMovement} deleteSavingsMovement={deleteSavingsMovement} />
         ) : tab === "patrimonio" ? (
