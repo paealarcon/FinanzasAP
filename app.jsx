@@ -51,6 +51,7 @@ async function apiPost(payload) {
   if (payload.key != null) params.set("key", payload.key);
   if (payload.value != null) params.set("value", payload.value);
   if (payload.asset) params.set("asset", JSON.stringify(payload.asset));
+  if (payload.proyecto) params.set("proyecto", JSON.stringify(payload.proyecto));
   return jsonp(API_URL + "?" + params.toString());
 }
 
@@ -347,7 +348,7 @@ function computeChargeMonth(date, paymentMethod, cierreDay) {
 
 function useSharedData() {
   const DEFAULT_CONFIG = { cierreDay: 15, lastPaymentMethod: "no_credito", lastCurrency: "CHF", fxRate: "" };
-  const [data, setData] = useState({ transactions: [], income: {}, savings: [], assets: [], config: DEFAULT_CONFIG });
+  const [data, setData] = useState({ transactions: [], income: {}, savings: [], assets: [], proyectos: [], config: DEFAULT_CONFIG });
   const [ready, setReady] = useState(false);
   const [saveError, setSaveError] = useState(false);
 
@@ -357,6 +358,7 @@ function useSharedData() {
       income: fresh.income || {},
       savings: fresh.savings || [],
       assets: fresh.assets || [],
+      proyectos: fresh.proyectos || [],
       config: { ...DEFAULT_CONFIG, ...(fresh.config || {}) },
     });
   }, []);
@@ -447,9 +449,27 @@ function useSharedData() {
     mutate({ action: "deleteAsset", id });
   }, [mutate]);
 
+  const saveProyecto = useCallback((proyecto) => {
+    setData((prev) => {
+      const proyectos = prev.proyectos || [];
+      const exists = proyectos.some((p) => p.id === proyecto.id);
+      const next = exists
+        ? proyectos.map((p) => (p.id === proyecto.id ? proyecto : p))
+        : [proyecto, ...proyectos];
+      return { ...prev, proyectos: next };
+    });
+    mutate({ action: "saveProyecto", proyecto });
+  }, [mutate]);
+
+  const deleteProyecto = useCallback((id) => {
+    setData((prev) => ({ ...prev, proyectos: (prev.proyectos || []).filter((p) => p.id !== id) }));
+    mutate({ action: "deleteProyecto", id });
+  }, [mutate]);
+
   return {
     data, ready, saveError, refresh, addTransaction, deleteTransaction, setIncome,
     addSavingsMovement, deleteSavingsMovement, setCierreDay, setFxRate, setHiddenLoans, saveAsset, deleteAsset,
+    saveProyecto, deleteProyecto,
   };
 }
 
@@ -537,18 +557,22 @@ function FinancialHealthPanel({ data, currency }) {
   const worstSaldo = Math.min(...monthsData.map((m) => m.saldo));
   let status;
   if (worstSaldo >= 0) {
-    status = { emoji: "🟢", bg: "bg-emerald-50", text: "text-emerald-700", label: "Situación saludable: los próximos meses cierran en positivo." };
+    status = { emoji: "🟢", bg: "bg-emerald-50", text: "text-emerald-700", label: "Mango con buena salud (saludable): los próximos meses cierran en positivo." };
   } else if (disponible + worstSaldo >= 0) {
-    status = { emoji: "🟡", bg: "bg-amber-50", text: "text-amber-700", label: "Ajustado: algún mes cierra en rojo, pero el ahorro disponible lo cubre." };
+    status = { emoji: "🟡", bg: "bg-amber-50", text: "text-amber-700", label: "¡Ojo con el mango! (deterioro): algún mes cierra en rojo, pero el ahorro disponible lo cubre." };
   } else {
-    status = { emoji: "🔴", bg: "bg-rose-50", text: "text-rose-700", label: "Atención: el ahorro disponible no alcanza para cubrir el mes más ajustado." };
+    status = { emoji: "🔴", bg: "bg-rose-50", text: "text-rose-700", label: "¡Mango podrido! (crítico): el ahorro disponible no alcanza para cubrir el mes más ajustado." };
   }
 
   const maxVal = Math.max(1, ...monthsData.flatMap((m) => [m.ingreso, m.gastoComprometido]));
+  const panelTitle = currency === "CHF" ? "Salud del mango suizo (CHF)" : "Salud del mango argentino (ARS)";
 
   return (
     <div className="mx-4 mb-4 bg-white rounded-2xl border border-slate-100 p-4 flex flex-col gap-3">
-      <div className="text-sm font-bold text-slate-700">📈 Salud financiera ({currency})</div>
+      <div className="text-sm font-bold text-slate-700 flex items-center gap-2">
+        <img src="apple-touch-icon.png" alt="" className="w-5 h-5 rounded" />
+        {panelTitle}
+      </div>
       <div className={`rounded-xl p-2.5 flex items-start gap-2 ${status.bg}`}>
         <span>{status.emoji}</span>
         <span className={`text-xs ${status.text}`}>{status.label}</span>
@@ -575,10 +599,9 @@ function FinancialHealthPanel({ data, currency }) {
         ))}
         <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-0.5 flex-wrap">
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400" /> Ingreso</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-400" /> Gastos fijos (mate = estimado)</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-400" /> Gastos fijos</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400" /> Crédito</span>
         </div>
-        <div className="text-[10px] text-slate-400 -mt-1">Gasto comprometido = gastos fijos + crédito</div>
       </div>
 
       <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-100">
@@ -1831,6 +1854,231 @@ function PatrimonioTab({ data, saveAsset, deleteAsset }) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Pestaña: Compras/Proyectos (prueba simple)                          */
+/* ------------------------------------------------------------------ */
+
+function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [name, setName] = useState("");
+  const [type, setType] = useState("compra");
+  const [pcurrency, setPCurrency] = useState("CHF");
+  const [items, setItems] = useState([]);
+  const [itemName, setItemName] = useState("");
+  const [itemPrice, setItemPrice] = useState("0");
+  const [confirmId, setConfirmId] = useState(null);
+
+  const now = new Date();
+  const currentMK = monthKey(now);
+  const effMonth = (t) => t.chargeMonth || monthKey(new Date(t.ts));
+
+  function excedente(cur) {
+    const gasto = data.transactions
+      .filter((t) => t.currency === cur && effMonth(t) === currentMK)
+      .reduce((s, t) => s + t.amount, 0);
+    const ingreso = data.income[`${currentMK}:${cur}`]?.amount || 0;
+    return ingreso - gasto;
+  }
+  const excedenteCHF = excedente("CHF");
+  const excedenteARS = excedente("ARS");
+  const disponible = data.savings.filter((m) => !m.purpose).reduce((s, m) => s + m.amount, 0);
+
+  function startNew() {
+    setEditingId(null);
+    setName("");
+    setType("compra");
+    setPCurrency("CHF");
+    setItems([]);
+    setItemName("");
+    setItemPrice("0");
+    setShowForm(true);
+  }
+
+  function startEdit(p) {
+    setEditingId(p.id);
+    setName(p.name);
+    setType(p.type);
+    setPCurrency(p.currency);
+    setItems(p.items || []);
+    setShowForm(true);
+  }
+
+  function addItem() {
+    if (!itemName.trim() || !parseFloat(itemPrice)) return;
+    setItems([...items, { id: uid(), name: itemName.trim(), price: parseFloat(itemPrice) }]);
+    setItemName("");
+    setItemPrice("0");
+  }
+
+  function removeItem(id) {
+    setItems(items.filter((i) => i.id !== id));
+  }
+
+  function save() {
+    if (!name.trim() || items.length === 0) return;
+    saveProyecto({ id: editingId || uid(), name: name.trim(), type, currency: pcurrency, items });
+    setShowForm(false);
+  }
+
+  const total = items.reduce((s, i) => s + i.price, 0);
+  const excedenteActivo = pcurrency === "CHF" ? excedenteCHF : excedenteARS;
+
+  return (
+    <div className="p-4 flex flex-col gap-4 overflow-y-auto h-full">
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-sky-50 rounded-2xl p-3 text-center">
+          <div className="text-xs text-sky-700 font-medium">Excedente CHF (mes)</div>
+          <div className="text-sm font-bold text-sky-800">{fmt(excedenteCHF, "CHF")}</div>
+        </div>
+        <div className="bg-amber-50 rounded-2xl p-3 text-center">
+          <div className="text-xs text-amber-700 font-medium">Excedente ARS (mes)</div>
+          <div className="text-sm font-bold text-amber-800">{fmt(excedenteARS, "ARS")}</div>
+        </div>
+      </div>
+      <div className="bg-emerald-50 rounded-2xl p-3 text-center">
+        <div className="text-xs text-emerald-700 font-medium">🐷 Ahorro disponible</div>
+        <div className="text-sm font-bold text-emerald-800">{fmt(disponible, "USD")}</div>
+      </div>
+
+      {!showForm ? (
+        <button onClick={startNew} className="bg-slate-800 text-white rounded-xl py-2.5 text-sm font-semibold">
+          ➕ Nueva compra o proyecto
+        </button>
+      ) : (
+        <div className="bg-slate-50 rounded-2xl p-4 flex flex-col gap-3">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Nombre (ej: Dron, Galería patio)"
+            className="border-2 border-slate-200 rounded-xl px-3 py-2 text-sm"
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setType("compra")}
+              className={`rounded-xl py-2 text-sm font-semibold ${type === "compra" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"}`}
+            >
+              🛍️ Compra
+            </button>
+            <button
+              onClick={() => setType("proyecto")}
+              className={`rounded-xl py-2 text-sm font-semibold ${type === "proyecto" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"}`}
+            >
+              🏗️ Proyecto
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setPCurrency("CHF")}
+              className={`rounded-xl py-2 text-sm font-semibold ${pcurrency === "CHF" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"}`}
+            >
+              🇨🇭 CHF
+            </button>
+            <button
+              onClick={() => setPCurrency("ARS")}
+              className={`rounded-xl py-2 text-sm font-semibold ${pcurrency === "ARS" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"}`}
+            >
+              🇦🇷 ARS
+            </button>
+          </div>
+
+          {items.length > 0 && (
+            <div className="flex flex-col gap-2">
+              {items.map((i) => (
+                <div key={i.id} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 text-sm">
+                  <span className="truncate pr-2">{i.name}</span>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="font-semibold">{fmt(i.price, pcurrency)}</span>
+                    <button onClick={() => removeItem(i.id)} className="text-slate-300 active:text-rose-500">✕</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <input
+            value={itemName}
+            onChange={(e) => setItemName(e.target.value)}
+            placeholder="Ítem (ej: Cámara, Materiales)"
+            className="border-2 border-slate-200 rounded-xl px-3 py-2 text-sm"
+          />
+          <div className="text-2xl font-bold text-center tabular-nums text-slate-800">{pcurrency} {itemPrice}</div>
+          <Keypad value={itemPrice} onChange={setItemPrice} />
+          <button
+            onClick={addItem}
+            disabled={!itemName.trim() || !parseFloat(itemPrice)}
+            className="rounded-xl py-2.5 text-sm font-semibold text-white bg-sky-600 disabled:opacity-40"
+          >
+            + Agregar ítem
+          </button>
+
+          <div className="bg-white rounded-xl p-3 text-center border border-slate-200">
+            <div className="text-xs text-slate-500">Total estimado</div>
+            <div className="text-xl font-bold text-slate-800">{fmt(total, pcurrency)}</div>
+          </div>
+
+          {total > 0 && (
+            <div className="text-xs text-slate-500 text-center">
+              Excedente de este mes ({pcurrency}): {fmt(excedenteActivo, pcurrency)} → quedaría en{" "}
+              <span className={excedenteActivo - total >= 0 ? "text-sky-600 font-semibold" : "text-rose-600 font-semibold"}>
+                {fmt(excedenteActivo - total, pcurrency)}
+              </span>{" "}
+              si lo hacés este mes
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => setShowForm(false)} className="rounded-xl py-2.5 text-sm font-semibold text-slate-500 bg-slate-200">
+              Cancelar
+            </button>
+            <button
+              onClick={save}
+              disabled={!name.trim() || items.length === 0}
+              className="rounded-xl py-2.5 text-sm font-semibold text-white bg-emerald-500 disabled:opacity-40"
+            >
+              Guardar
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2">
+        {(data.proyectos || []).map((p) => {
+          const t = (p.items || []).reduce((s, i) => s + i.price, 0);
+          return (
+            <div key={p.id} className="bg-white border border-slate-100 rounded-2xl p-3 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-lg flex-shrink-0">
+                {p.type === "compra" ? "🛍️" : "🏗️"}
+              </div>
+              <button className="flex-1 min-w-0 text-left" onClick={() => startEdit(p)}>
+                <div className="text-sm font-semibold text-slate-800 truncate">{p.name}</div>
+                <div className="text-xs text-slate-400">{(p.items || []).length} ítem(s)</div>
+              </button>
+              <div className="text-sm font-bold text-slate-700 whitespace-nowrap">{fmt(t, p.currency)}</div>
+              {confirmId === p.id ? (
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button
+                    onClick={() => { deleteProyecto(p.id); setConfirmId(null); }}
+                    className="text-xs font-bold text-white bg-rose-500 rounded-lg px-2 py-1.5"
+                  >
+                    Borrar
+                  </button>
+                  <button onClick={() => setConfirmId(null)} className="text-xs text-slate-400 px-1.5">Cancelar</button>
+                </div>
+              ) : (
+                <button onClick={() => setConfirmId(p.id)} className="text-slate-300 active:text-rose-500 text-lg px-1">✕</button>
+              )}
+            </div>
+          );
+        })}
+        {(!data.proyectos || data.proyectos.length === 0) && (
+          <p className="text-center text-slate-400 text-sm py-8">Todavía no cargaste ninguna compra o proyecto.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* App                                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -1838,6 +2086,7 @@ function App() {
   const {
     data, ready, saveError, refresh, addTransaction, deleteTransaction, setIncome,
     setCierreDay, setFxRate, setHiddenLoans, saveAsset, deleteAsset, addSavingsMovement, deleteSavingsMovement,
+    saveProyecto, deleteProyecto,
   } = useSharedData();
   const [tab, setTab] = useState("entry");
   const [viewCurrency, setViewCurrency] = useState("CHF");
@@ -1852,6 +2101,7 @@ function App() {
     { key: "proximos", label: "Próximos meses", emoji: "📅" },
     { key: "ahorro", label: "Ahorro", emoji: "🐷", icon: "icon-ahorro.png" },
     { key: "patrimonio", label: "Patrimonio", emoji: "🏛️" },
+    { key: "proyectos", label: "Compras/Proyectos", emoji: "🛍️" },
     { key: "historial", label: "Historial", emoji: "🧾" },
   ];
 
@@ -1883,12 +2133,14 @@ function App() {
           <AhorroTab data={data} addSavingsMovement={addSavingsMovement} deleteSavingsMovement={deleteSavingsMovement} />
         ) : tab === "patrimonio" ? (
           <PatrimonioTab data={data} saveAsset={saveAsset} deleteAsset={deleteAsset} />
+        ) : tab === "proyectos" ? (
+          <ProyectosTab data={data} saveProyecto={saveProyecto} deleteProyecto={deleteProyecto} />
         ) : (
           <HistorialTab data={data} currency={viewCurrency} setCurrency={setViewCurrency} deleteTransaction={deleteTransaction} />
         )}
       </div>
 
-      <div className="grid grid-cols-6 border-t border-slate-200 bg-white pb-safe">
+      <div className="grid grid-cols-7 border-t border-slate-200 bg-white pb-safe">
         {tabs.map((t) => (
           <button
             key={t.key}
