@@ -1964,12 +1964,11 @@ function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
 
   const [showTransfer, setShowTransfer] = useState(false);
   const [transferAmount, setTransferAmount] = useState("0");
-  const [transferOrigin, setTransferOrigin] = useState("USD");
+  const [transferOrigin, setTransferOrigin] = useState("CHF");
   const [transferTarget, setTransferTarget] = useState("CHF");
-  const [transferRate, setTransferRate] = useState("");
-  const [transferCHF, setTransferCHF] = useState(0);
-  const [transferARS, setTransferARS] = useState(0);
-  const [transferredFromAhorro, setTransferredFromAhorro] = useState(0);
+  const [transferRate, setTransferRate] = useState("1837");
+  const [transfers, setTransfers] = useState([]); // {id, origin, target, amount, rate, finalAmount}
+  const [confirmTransferId, setConfirmTransferId] = useState(null);
 
   const now = new Date();
   const currentMK = monthKey(now);
@@ -1989,6 +1988,10 @@ function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
   // Los totales ya guardados (compras/proyectos) y las transferencias desde
   // Ahorro impactan en vivo sobre el excedente mostrado — es una vista de
   // planificación, no mueve plata real entre pestañas.
+  const transferCHF = transfers.filter((t) => t.target === "CHF").reduce((s, t) => s + t.finalAmount, 0);
+  const transferARS = transfers.filter((t) => t.target === "ARS").reduce((s, t) => s + t.finalAmount, 0);
+  const transferredFromAhorro = transfers.reduce((s, t) => s + t.amount, 0);
+
   const excedenteCHF = excedenteReal("CHF") - totalGuardado("CHF") + transferCHF;
   const excedenteARS = excedenteReal("ARS") - totalGuardado("ARS") + transferARS;
   const disponible = data.savings.filter((m) => !m.purpose).reduce((s, m) => s + m.amount, 0) - transferredFromAhorro;
@@ -2050,12 +2053,17 @@ function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
     const rate = parseFloat(transferRate);
     const finalAmount = needsRate ? (rate ? n * rate : 0) : n;
     if (!finalAmount) return;
-    if (transferTarget === "CHF") setTransferCHF((v) => v + finalAmount);
-    else setTransferARS((v) => v + finalAmount);
-    setTransferredFromAhorro((v) => v + n);
+    setTransfers([
+      { id: uid(), origin: transferOrigin, target: transferTarget, amount: n, rate: needsRate ? rate : null, finalAmount },
+      ...transfers,
+    ]);
     setTransferAmount("0");
-    setTransferRate("");
     setShowTransfer(false);
+  }
+
+  function undoTransfer(id) {
+    setTransfers(transfers.filter((t) => t.id !== id));
+    setConfirmTransferId(null);
   }
 
   const totalProyecto = items.reduce((s, i) => s + i.price, 0);
@@ -2085,22 +2093,16 @@ function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
         <div className="bg-slate-50 rounded-2xl p-3 flex flex-col gap-3">
           <div>
             <label className="text-xs text-slate-500 block mb-1">Origen (cómo pensás este monto)</label>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                onClick={() => setTransferOrigin("USD")}
-                className={`rounded-xl py-2 text-xs font-semibold ${transferOrigin === "USD" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"}`}
-              >
-                💵 USD
-              </button>
+            <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => setTransferOrigin("CHF")}
-                className={`rounded-xl py-2 text-xs font-semibold ${transferOrigin === "CHF" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"}`}
+                className={`rounded-xl py-2 text-sm font-semibold ${transferOrigin === "CHF" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"}`}
               >
                 🇨🇭 CHF
               </button>
               <button
                 onClick={() => setTransferOrigin("ARS")}
-                className={`rounded-xl py-2 text-xs font-semibold ${transferOrigin === "ARS" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"}`}
+                className={`rounded-xl py-2 text-sm font-semibold ${transferOrigin === "ARS" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"}`}
               >
                 🇦🇷 ARS
               </button>
@@ -2157,6 +2159,35 @@ function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
             Transferir
           </button>
           <p className="text-[10px] text-slate-400">Esto solo ajusta la vista de esta pestaña, no mueve plata real de Ahorro.</p>
+        </div>
+      )}
+
+      {transfers.length > 0 && (
+        <div className="flex flex-col gap-2">
+          {transfers.map((t) => (
+            <div key={t.id} className="bg-white border border-slate-100 rounded-2xl p-3 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-lg flex-shrink-0">🔁</div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-semibold text-slate-800 truncate">
+                  {t.origin} {fmt(t.amount, t.origin)} → {t.target} {fmt(t.finalAmount, t.target)}
+                </div>
+                <div className="text-xs text-slate-400">{t.rate ? `Tasa: 1 ${t.origin} = ${t.rate} ${t.target}` : "Sin conversión"}</div>
+              </div>
+              {confirmTransferId === t.id ? (
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button
+                    onClick={() => undoTransfer(t.id)}
+                    className="text-xs font-bold text-white bg-rose-500 rounded-lg px-2 py-1.5"
+                  >
+                    Deshacer
+                  </button>
+                  <button onClick={() => setConfirmTransferId(null)} className="text-xs text-slate-400 px-1.5">Cancelar</button>
+                </div>
+              ) : (
+                <button onClick={() => setConfirmTransferId(t.id)} className="text-slate-300 active:text-rose-500 text-lg px-1">✕</button>
+              )}
+            </div>
+          ))}
         </div>
       )}
 
