@@ -84,7 +84,7 @@ const LOAN_TERRENO_CUOTA_MENSUAL = 140; // USD
 function buildTerrenoInstallments() {
   const out = [];
   for (let n = LOAN_TERRENO_CUOTA_INICIO; n <= LOAN_TERRENO_CUOTA_FIN; n++) {
-    out.push({ key: `cuota-terreno-${n}`, label: `Cuota ${n}`, fixedAmount: LOAN_TERRENO_CUOTA_MENSUAL });
+    out.push({ key: `cuota-terreno-${n}`, label: `Cuota ${n}`, fixedAmountUSD: LOAN_TERRENO_CUOTA_MENSUAL });
   }
   return out;
 }
@@ -502,26 +502,33 @@ function Keypad({ value, onChange }) {
 function FinancialHealthPanel({ data, currency }) {
   const now = new Date();
   const effMonth = (t) => t.chargeMonth || monthKey(new Date(t.ts));
+  // Rojo: Gastos fijos + Salud + Víveres. Naranja: Préstamos + cualquier gasto en crédito.
   const FIXED_CAT_KEYS = currency === "CHF"
-    ? ["supermercado", "salud", "prestamos"] // Víveres, Salud, Préstamos (Suiza)
-    : ["viveres_ar", "salud_ar", "prestamos_ar"]; // Víveres, Salud, Préstamos (Argentina)
+    ? ["alquiler", "salud", "supermercado"]
+    : ["gastos_fijos_ar", "salud_ar", "viveres_ar"];
+  const LOAN_CAT_KEYS = currency === "CHF" ? ["prestamos"] : ["prestamos_ar"];
 
   const monthsData = [0, 1, 2].map((offset) => {
     const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
     const mk = monthKey(d);
     const monthTx = data.transactions.filter((t) => t.currency === currency && effMonth(t) === mk);
-    const gasto = monthTx.reduce((s, t) => s + t.amount, 0);
-    const gastoFijoReal = monthTx
+    const fijosReal = monthTx
       .filter((t) => FIXED_CAT_KEYS.includes(t.categoryKey))
       .reduce((s, t) => s + t.amount, 0);
+    const credito = monthTx
+      .filter((t) => LOAN_CAT_KEYS.includes(t.categoryKey) || t.paymentMethod === "credito")
+      .reduce((s, t) => s + t.amount, 0);
     const ingreso = data.income[`${mk}:${currency}`]?.amount || 0;
-    return { mk, ingreso, gasto, gastoFijoReal, saldo: ingreso - gasto };
+    return { mk, ingreso, fijosReal, credito };
   });
-  // Meses futuros (2do, 3ro...): el gasto fijo todavía no está cargado, así que
-  // se estima igual al del mes en curso (1ro de la serie) en vez de mostrar ~0.
+  // Meses futuros (2do, 3ro...): los gastos fijos todavía no están cargados, así
+  // que se estiman igual al mes en curso (1ro de la serie) — el crédito, en
+  // cambio, refleja solo lo ya comprometido de verdad (ej. cuotas ya cargadas).
   monthsData.forEach((m, i) => {
-    m.gastoFijo = i === 0 ? m.gastoFijoReal : monthsData[0].gastoFijoReal;
+    m.gastoFijo = i === 0 ? m.fijosReal : monthsData[0].fijosReal;
     m.gastoFijoEstimado = i > 0;
+    m.gastoComprometido = m.gastoFijo + m.credito;
+    m.saldo = m.ingreso - m.gastoComprometido;
   });
 
   const disponible = data.savings.filter((m) => !m.purpose).reduce((s, m) => s + m.amount, 0);
@@ -537,7 +544,7 @@ function FinancialHealthPanel({ data, currency }) {
     status = { emoji: "🔴", bg: "bg-rose-50", text: "text-rose-700", label: "Atención: el ahorro disponible no alcanza para cubrir el mes más ajustado." };
   }
 
-  const maxVal = Math.max(1, ...monthsData.flatMap((m) => [m.ingreso, m.gasto, m.gastoFijo]));
+  const maxVal = Math.max(1, ...monthsData.flatMap((m) => [m.ingreso, m.gastoComprometido]));
 
   return (
     <div className="mx-4 mb-4 bg-white rounded-2xl border border-slate-100 p-4 flex flex-col gap-3">
@@ -557,25 +564,21 @@ function FinancialHealthPanel({ data, currency }) {
             <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
               <div className="h-full bg-emerald-400" style={{ width: `${(m.ingreso / maxVal) * 100}%` }} />
             </div>
-            <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-              <div className="h-full bg-rose-400" style={{ width: `${(m.gasto / maxVal) * 100}%` }} />
-            </div>
-            <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+            <div className="h-2 rounded-full bg-slate-100 overflow-hidden flex">
               <div
-                className="h-full bg-indigo-400"
-                style={{
-                  width: `${(m.gastoFijo / maxVal) * 100}%`,
-                  opacity: m.gastoFijoEstimado ? 0.55 : 1,
-                }}
+                className="h-full bg-rose-400"
+                style={{ width: `${(m.gastoFijo / maxVal) * 100}%`, opacity: m.gastoFijoEstimado ? 0.55 : 1 }}
               />
+              <div className="h-full bg-orange-400" style={{ width: `${(m.credito / maxVal) * 100}%` }} />
             </div>
           </div>
         ))}
         <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-0.5 flex-wrap">
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400" /> Ingreso</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-400" /> Gasto comprometido</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-400" /> Gastos fijos (mate = estimado)</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-400" /> Gastos fijos (mate = estimado)</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400" /> Crédito</span>
         </div>
+        <div className="text-[10px] text-slate-400 -mt-1">Gasto comprometido = gastos fijos + crédito</div>
       </div>
 
       <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-100">
@@ -592,7 +595,7 @@ function FinancialHealthPanel({ data, currency }) {
   );
 }
 
-function EntryTab({ addTransaction, config, data, setHiddenLoans }) {
+function EntryTab({ addTransaction, config, data, setHiddenLoans, setFxRate }) {
   const [path, setPath] = useState([]);
   const [step, setStep] = useState("cat");
   const [freeTextInput, setFreeTextInput] = useState("");
@@ -608,6 +611,8 @@ function EntryTab({ addTransaction, config, data, setHiddenLoans }) {
   const [simTasa, setSimTasa] = useState("0");
   const [confirmDeleteLoan, setConfirmDeleteLoan] = useState(null);
   const hiddenLoansArr = (config.hiddenLoans || "").split(",").filter(Boolean);
+  const [fxAmountUSD, setFxAmountUSD] = useState(0);
+  const [fxRateInput, setFxRateInput] = useState("");
 
   function hideLoan(key) {
     setHiddenLoans([...hiddenLoansArr, key].join(","));
@@ -669,6 +674,13 @@ function EntryTab({ addTransaction, config, data, setHiddenLoans }) {
     if (sub.loanSimulator) {
       setPath([...parentPath, node]);
       setStep("simulator");
+      return;
+    }
+    if (sub.fixedAmountUSD != null) {
+      setPath([...parentPath, node]);
+      setFxAmountUSD(sub.fixedAmountUSD);
+      setFxRateInput(config.fxRate ? String(config.fxRate) : "");
+      setStep("fxconvert");
       return;
     }
     if (sub.freeText) {
@@ -942,6 +954,46 @@ function EntryTab({ addTransaction, config, data, setHiddenLoans }) {
         </div>
       )}
 
+      {step === "fxconvert" && (
+        <div className="flex flex-col gap-4 p-6 overflow-y-auto">
+          <p className="text-slate-700 text-sm font-semibold">💱 Cuota en dólares</p>
+          <div className="bg-slate-50 rounded-2xl p-4 text-center">
+            <div className="text-xs text-slate-500">Cuota</div>
+            <div className="text-2xl font-bold text-slate-800">USD {fxAmountUSD}</div>
+          </div>
+          <div>
+            <label className="text-xs text-slate-500">Tasa de cambio (1 USD = ? ARS)</label>
+            <input
+              type="number"
+              autoFocus
+              value={fxRateInput}
+              onChange={(e) => setFxRateInput(e.target.value)}
+              placeholder="Ej: 1200"
+              className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-lg focus:outline-none focus:border-slate-400"
+            />
+          </div>
+          <div className="bg-slate-50 rounded-2xl p-4 text-center">
+            <div className="text-xs text-slate-500">Equivale a</div>
+            <div className="text-2xl font-bold text-slate-800">
+              ARS {(fxAmountUSD * (parseFloat(fxRateInput) || 0)).toLocaleString("es-AR", { maximumFractionDigits: 2 })}
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              const rate = parseFloat(fxRateInput) || 0;
+              setAmount(String(Math.round(fxAmountUSD * rate * 100) / 100));
+              if (rate) setFxRate(rate);
+              setStep("amount");
+            }}
+            disabled={!parseFloat(fxRateInput)}
+            style={{ backgroundColor: rootAccent }}
+            className="rounded-xl py-3 text-white font-semibold disabled:opacity-40"
+          >
+            Continuar
+          </button>
+        </div>
+      )}
+
       {step === "amount" && (
         <div className="flex flex-col items-center gap-6 p-6 flex-1 overflow-y-auto">
           <div className="text-4xl font-bold tabular-nums" style={{ color: rootAccent }}>
@@ -1113,6 +1165,33 @@ function CategoryDetail({ transactions, currency }) {
 /* Bloque de un mes: ingresos (tocable) / gastos (tocable) / saldo     */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/* Selector de país (mismo estilo que en Cargar)                       */
+/* ------------------------------------------------------------------ */
+
+function CountryToggle({ currency, setCurrency }) {
+  return (
+    <div className="px-4 pt-4 grid grid-cols-2 gap-2">
+      <button
+        onClick={() => setCurrency("CHF")}
+        className={`rounded-xl py-2.5 text-sm font-semibold ${
+          currency === "CHF" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500"
+        }`}
+      >
+        🇨🇭 Suiza (CHF)
+      </button>
+      <button
+        onClick={() => setCurrency("ARS")}
+        className={`rounded-xl py-2.5 text-sm font-semibold ${
+          currency === "ARS" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500"
+        }`}
+      >
+        🇦🇷 Argentina (ARS)
+      </button>
+    </div>
+  );
+}
+
 function MonthSummary({ mk, currency, ingreso, transactions, onSaveIncome }) {
   const [editing, setEditing] = useState(false);
   const [amount, setAmount] = useState(String(ingreso || 0));
@@ -1187,7 +1266,7 @@ function MonthSummary({ mk, currency, ingreso, transactions, onSaveIncome }) {
   );
 }
 
-function BalanceTab({ data, currency, setIncome }) {
+function BalanceTab({ data, currency, setCurrency, setIncome }) {
   const now = new Date();
   const currentMK = monthKey(now);
 
@@ -1205,14 +1284,17 @@ function BalanceTab({ data, currency, setIncome }) {
     new Date(incomeRec.updatedAt).getFullYear() !== now.getFullYear());
 
   return (
-    <div className="p-4 flex flex-col gap-4 overflow-y-auto">
-      {needsReminder && (
-        <div className="bg-amber-100 border border-amber-300 text-amber-900 rounded-2xl p-3 text-sm flex items-center justify-between gap-2">
-          <span>📅 Es 25 o más tarde — actualizá el ingreso del mes.</span>
-        </div>
-      )}
+    <div className="flex flex-col gap-4 overflow-y-auto h-full">
+      <CountryToggle currency={currency} setCurrency={setCurrency} />
+      <div className="px-4 pb-4 flex flex-col gap-4">
+        {needsReminder && (
+          <div className="bg-amber-100 border border-amber-300 text-amber-900 rounded-2xl p-3 text-sm flex items-center justify-between gap-2">
+            <span>📅 Es 25 o más tarde — actualizá el ingreso del mes.</span>
+          </div>
+        )}
 
-      <MonthSummary mk={currentMK} currency={currency} ingreso={ingreso} transactions={monthTx} onSaveIncome={setIncome} />
+        <MonthSummary mk={currentMK} currency={currency} ingreso={ingreso} transactions={monthTx} onSaveIncome={setIncome} />
+      </div>
     </div>
   );
 }
@@ -1221,7 +1303,7 @@ function BalanceTab({ data, currency, setIncome }) {
 /* Pestaña: Próximos meses (gastos ya comprometidos por crédito)       */
 /* ------------------------------------------------------------------ */
 
-function ProximosMesesTab({ data, currency, setIncome, setCierreDay }) {
+function ProximosMesesTab({ data, currency, setCurrency, setIncome, setCierreDay }) {
   const now = new Date();
   const [editingCierre, setEditingCierre] = useState(false);
   const [cierreInput, setCierreInput] = useState(String(data.config.cierreDay));
@@ -1242,39 +1324,42 @@ function ProximosMesesTab({ data, currency, setIncome, setCierreDay }) {
   }
 
   return (
-    <div className="p-4 flex flex-col gap-4 overflow-y-auto">
-      <div className="flex items-center justify-between text-xs text-slate-400 px-1">
-        {!editingCierre ? (
-          <button onClick={() => { setCierreInput(String(data.config.cierreDay)); setEditingCierre(true); }} className="underline">
-            ⚙️ Día de cierre de la tarjeta: {data.config.cierreDay}
-          </button>
-        ) : (
-          <div className="flex items-center gap-2">
-            <span>Día de cierre:</span>
-            <input
-              type="number"
-              min="1"
-              max="31"
-              value={cierreInput}
-              onChange={(e) => setCierreInput(e.target.value)}
-              className="w-14 border border-slate-300 rounded-lg px-2 py-1 text-slate-700 text-sm"
-            />
-            <button onClick={saveCierre} className="text-emerald-600 font-semibold">Guardar</button>
-            <button onClick={() => setEditingCierre(false)} className="text-slate-400">Cancelar</button>
-          </div>
-        )}
-      </div>
+    <div className="flex flex-col gap-4 overflow-y-auto h-full">
+      <CountryToggle currency={currency} setCurrency={setCurrency} />
+      <div className="px-4 pb-4 flex flex-col gap-4">
+        <div className="flex items-center justify-between text-xs text-slate-400 px-1">
+          {!editingCierre ? (
+            <button onClick={() => { setCierreInput(String(data.config.cierreDay)); setEditingCierre(true); }} className="underline">
+              ⚙️ Día de cierre de la tarjeta: {data.config.cierreDay}
+            </button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span>Día de cierre:</span>
+              <input
+                type="number"
+                min="1"
+                max="31"
+                value={cierreInput}
+                onChange={(e) => setCierreInput(e.target.value)}
+                className="w-14 border border-slate-300 rounded-lg px-2 py-1 text-slate-700 text-sm"
+              />
+              <button onClick={saveCierre} className="text-emerald-600 font-semibold">Guardar</button>
+              <button onClick={() => setEditingCierre(false)} className="text-slate-400">Cancelar</button>
+            </div>
+          )}
+        </div>
 
-      {upcomingMonths.map((m) => (
-        <MonthSummary
-          key={m.mk}
-          mk={m.mk}
-          currency={currency}
-          ingreso={m.ingresoMes}
-          transactions={m.monthTx}
-          onSaveIncome={setIncome}
-        />
-      ))}
+        {upcomingMonths.map((m) => (
+          <MonthSummary
+            key={m.mk}
+            mk={m.mk}
+            currency={currency}
+            ingreso={m.ingresoMes}
+            transactions={m.monthTx}
+            onSaveIncome={setIncome}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -1283,7 +1368,7 @@ function ProximosMesesTab({ data, currency, setIncome, setCierreDay }) {
 /* Pestaña 4: Historial                                                 */
 /* ------------------------------------------------------------------ */
 
-function HistorialTab({ data, currency, deleteTransaction }) {
+function HistorialTab({ data, currency, setCurrency, deleteTransaction }) {
   const currentMK = monthKey(new Date());
   const filteredByCurrency = data.transactions.filter((t) => t.currency === currency);
   const effMonth = (t) => t.chargeMonth || monthKey(new Date(t.ts));
@@ -1340,7 +1425,9 @@ function HistorialTab({ data, currency, deleteTransaction }) {
     .sort((a, b) => b.total - a.total);
 
   return (
-    <div className="p-4 flex flex-col gap-3 overflow-y-auto h-full">
+    <div className="flex flex-col gap-3 overflow-y-auto h-full">
+      <CountryToggle currency={currency} setCurrency={setCurrency} />
+      <div className="px-4 pb-4 flex flex-col gap-3">
       <div className="flex items-center gap-2">
         <select
           value={filter}
@@ -1424,6 +1511,7 @@ function HistorialTab({ data, currency, deleteTransaction }) {
             </div>
           </div>
         ))}
+      </div>
       </div>
     </div>
   );
@@ -1767,8 +1855,6 @@ function App() {
     { key: "historial", label: "Historial", emoji: "🧾" },
   ];
 
-  const showCurrencyToggle = ["balance", "proximos", "historial"].includes(tab);
-
   return (
     <div className="w-full h-[100dvh] bg-slate-50 flex flex-col overflow-hidden">
       <div className="bg-slate-900 text-white px-4 py-3 flex items-center justify-between pt-safe">
@@ -1778,22 +1864,6 @@ function App() {
         </span>
         <div className="flex items-center gap-3">
           {saveError && <span className="text-[10px] text-amber-300">⚠ sin conexión al Sheet</span>}
-          {showCurrencyToggle && (
-            <div className="flex bg-slate-800 rounded-full p-0.5">
-              <button
-                onClick={() => setViewCurrency("CHF")}
-                className={`px-2.5 py-1 rounded-full text-xs font-semibold ${viewCurrency === "CHF" ? "bg-white text-slate-900" : "text-slate-300"}`}
-              >
-                🇨🇭
-              </button>
-              <button
-                onClick={() => setViewCurrency("ARS")}
-                className={`px-2.5 py-1 rounded-full text-xs font-semibold ${viewCurrency === "ARS" ? "bg-white text-slate-900" : "text-slate-300"}`}
-              >
-                🇦🇷
-              </button>
-            </div>
-          )}
           {tab !== "entry" && (
             <button onClick={refresh} className="text-xs text-slate-300 active:text-white">↻</button>
           )}
@@ -1804,17 +1874,17 @@ function App() {
         {!ready ? (
           <div className="h-full flex items-center justify-center text-slate-400 text-sm">Cargando…</div>
         ) : tab === "entry" ? (
-          <EntryTab addTransaction={addTransaction} config={data.config} data={data} setHiddenLoans={setHiddenLoans} />
+          <EntryTab addTransaction={addTransaction} config={data.config} data={data} setHiddenLoans={setHiddenLoans} setFxRate={setFxRate} />
         ) : tab === "balance" ? (
-          <BalanceTab data={data} currency={viewCurrency} setIncome={setIncome} />
+          <BalanceTab data={data} currency={viewCurrency} setCurrency={setViewCurrency} setIncome={setIncome} />
         ) : tab === "proximos" ? (
-          <ProximosMesesTab data={data} currency={viewCurrency} setIncome={setIncome} setCierreDay={setCierreDay} />
+          <ProximosMesesTab data={data} currency={viewCurrency} setCurrency={setViewCurrency} setIncome={setIncome} setCierreDay={setCierreDay} />
         ) : tab === "ahorro" ? (
           <AhorroTab data={data} addSavingsMovement={addSavingsMovement} deleteSavingsMovement={deleteSavingsMovement} />
         ) : tab === "patrimonio" ? (
           <PatrimonioTab data={data} saveAsset={saveAsset} deleteAsset={deleteAsset} />
         ) : (
-          <HistorialTab data={data} currency={viewCurrency} deleteTransaction={deleteTransaction} />
+          <HistorialTab data={data} currency={viewCurrency} setCurrency={setViewCurrency} deleteTransaction={deleteTransaction} />
         )}
       </div>
 
