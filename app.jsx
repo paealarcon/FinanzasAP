@@ -347,7 +347,7 @@ function computeChargeMonth(date, paymentMethod, cierreDay) {
 /* ------------------------------------------------------------------ */
 
 function useSharedData() {
-  const DEFAULT_CONFIG = { cierreDay: 15, lastPaymentMethod: "no_credito", lastCurrency: "CHF", fxRate: "" };
+  const DEFAULT_CONFIG = { cierreDay: 15, lastPaymentMethod: "no_credito", lastCurrency: "CHF", fxRate: "", dailyEstimateCHF: 100, dailyEstimateARS: 40000 };
   const [data, setData] = useState({ transactions: [], income: {}, savings: [], assets: [], proyectos: [], config: DEFAULT_CONFIG });
   const [ready, setReady] = useState(false);
   const [saveError, setSaveError] = useState(false);
@@ -428,6 +428,12 @@ function useSharedData() {
     mutate({ action: "setConfig", key: "fxRate", value: rate });
   }, [mutate]);
 
+  const setDailyEstimate = useCallback((currency, value) => {
+    const key = currency === "CHF" ? "dailyEstimateCHF" : "dailyEstimateARS";
+    setData((prev) => ({ ...prev, config: { ...prev.config, [key]: value } }));
+    mutate({ action: "setConfig", key, value });
+  }, [mutate]);
+
   const setHiddenLoans = useCallback((csv) => {
     setData((prev) => ({ ...prev, config: { ...prev.config, hiddenLoans: csv } }));
     mutate({ action: "setConfig", key: "hiddenLoans", value: csv });
@@ -468,7 +474,7 @@ function useSharedData() {
 
   return {
     data, ready, saveError, refresh, addTransaction, deleteTransaction, setIncome,
-    addSavingsMovement, deleteSavingsMovement, setCierreDay, setFxRate, setHiddenLoans, saveAsset, deleteAsset,
+    addSavingsMovement, deleteSavingsMovement, setCierreDay, setFxRate, setDailyEstimate, setHiddenLoans, saveAsset, deleteAsset,
     saveProyecto, deleteProyecto,
   };
 }
@@ -519,7 +525,7 @@ function Keypad({ value, onChange }) {
 /* Salud financiera: proyección de caja + estado, para decidir mejor   */
 /* ------------------------------------------------------------------ */
 
-function FinancialHealthPanel({ data, currency }) {
+function FinancialHealthPanel({ data, currency, setDailyEstimate }) {
   const now = new Date();
   const effMonth = (t) => t.chargeMonth || monthKey(new Date(t.ts));
   // Rojo: Gastos fijos + Salud + Víveres. Naranja: Préstamos + cualquier gasto en crédito.
@@ -538,8 +544,9 @@ function FinancialHealthPanel({ data, currency }) {
     const credito = monthTx
       .filter((t) => LOAN_CAT_KEYS.includes(t.categoryKey) || t.paymentMethod === "credito")
       .reduce((s, t) => s + t.amount, 0);
+    const gastoTotal = monthTx.reduce((s, t) => s + t.amount, 0);
     const ingreso = data.income[`${mk}:${currency}`]?.amount || 0;
-    return { mk, ingreso, fijosReal, credito };
+    return { mk, ingreso, fijosReal, credito, gastoTotal };
   });
   // Meses futuros (2do, 3ro...): los gastos fijos todavía no están cargados, así
   // que se estiman igual al mes en curso (1ro de la serie) — el crédito, en
@@ -548,20 +555,41 @@ function FinancialHealthPanel({ data, currency }) {
     m.gastoFijo = i === 0 ? m.fijosReal : monthsData[0].fijosReal;
     m.gastoFijoEstimado = i > 0;
     m.gastoComprometido = m.gastoFijo + m.credito;
-    m.saldo = m.ingreso - m.gastoComprometido;
   });
 
-  const disponible = data.savings.filter((m) => !m.purpose).reduce((s, m) => s + m.amount, 0);
-  const reservado = data.savings.filter((m) => m.purpose).reduce((s, m) => s + m.amount, 0);
+  // Saldo del mes en curso = ingreso menos el gasto TOTAL (todas las categorías).
+  const currentMK = monthKey(now);
+  const saldoActual = monthsData[0].ingreso - monthsData[0].gastoTotal;
 
-  const worstSaldo = Math.min(...monthsData.map((m) => m.saldo));
+  // Próximo ingreso: día 25 en Suiza, día 1 en Argentina.
+  const diaIngreso = currency === "CHF" ? 25 : 1;
+  let proximoIngreso = new Date(now.getFullYear(), now.getMonth(), diaIngreso);
+  if (proximoIngreso <= now) proximoIngreso = new Date(now.getFullYear(), now.getMonth() + 1, diaIngreso);
+  const diasHastaIngreso = Math.max(1, Math.ceil((proximoIngreso - now) / 86400000));
+
+  const dailyEstimate = currency === "CHF" ? (data.config.dailyEstimateCHF || 100) : (data.config.dailyEstimateARS || 40000);
+  const necesario = dailyEstimate * diasHastaIngreso;
+  const ratio = necesario > 0 ? (saldoActual / necesario) * 100 : (saldoActual >= 0 ? 200 : 0);
+
   let status;
-  if (worstSaldo >= 0) {
-    status = { emoji: "🟢", bg: "bg-emerald-50", text: "text-emerald-700", label: "Mango con buena salud (saludable): los próximos meses cierran en positivo." };
-  } else if (disponible + worstSaldo >= 0) {
-    status = { emoji: "🟡", bg: "bg-amber-50", text: "text-amber-700", label: "¡Ojo con el mango! (deterioro): algún mes cierra en rojo, pero el ahorro disponible lo cubre." };
+  if (ratio >= 125) {
+    status = { emoji: "🟢", bg: "bg-emerald-50", text: "text-emerald-700", label: "¡El mango crece!" };
+  } else if (ratio >= 100) {
+    status = { emoji: "🟢", bg: "bg-emerald-50", text: "text-emerald-700", label: "Mango con buena salud" };
+  } else if (ratio >= 75) {
+    status = { emoji: "🟡", bg: "bg-amber-50", text: "text-amber-700", label: "Ojo con el mango" };
   } else {
-    status = { emoji: "🔴", bg: "bg-rose-50", text: "text-rose-700", label: "¡Mango podrido! (crítico): el ahorro disponible no alcanza para cubrir el mes más ajustado." };
+    status = { emoji: "🔴", bg: "bg-rose-50", text: "text-rose-700", label: "Se pudrió el mango" };
+  }
+
+  const [editingDaily, setEditingDaily] = useState(false);
+  const [dailyInput, setDailyInput] = useState(String(dailyEstimate));
+
+  function saveDaily() {
+    const v = parseFloat(dailyInput);
+    if (!v) return;
+    setDailyEstimate(currency, v);
+    setEditingDaily(false);
   }
 
   const maxVal = Math.max(1, ...monthsData.flatMap((m) => [m.ingreso, m.gastoComprometido]));
@@ -575,16 +603,35 @@ function FinancialHealthPanel({ data, currency }) {
       </div>
       <div className={`rounded-xl p-2.5 flex items-start gap-2 ${status.bg}`}>
         <span>{status.emoji}</span>
-        <span className={`text-xs ${status.text}`}>{status.label}</span>
+        <span className={`text-xs font-semibold ${status.text}`}>{status.label}</span>
+      </div>
+      <div className="flex items-center justify-between text-xs text-slate-500">
+        <span>Saldo del mes ({diasHastaIngreso} días para el próximo ingreso)</span>
+        <span className={`font-semibold ${saldoActual >= 0 ? "text-sky-600" : "text-rose-600"}`}>{fmt(saldoActual, currency)}</span>
+      </div>
+      <div className="text-[10px] text-slate-400">
+        {!editingDaily ? (
+          <button onClick={() => { setDailyInput(String(dailyEstimate)); setEditingDaily(true); }} className="underline">
+            ⚙️ Gasto diario estimado (2 personas): {fmt(dailyEstimate, currency)}/día
+          </button>
+        ) : (
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              type="number"
+              value={dailyInput}
+              onChange={(e) => setDailyInput(e.target.value)}
+              className="w-24 border border-slate-300 rounded-lg px-2 py-1 text-slate-700 text-xs"
+            />
+            <button onClick={saveDaily} className="text-emerald-600 font-semibold">Guardar</button>
+            <button onClick={() => setEditingDaily(false)} className="text-slate-400">Cancelar</button>
+          </div>
+        )}
       </div>
 
-      <div className="flex flex-col gap-2.5">
+      <div className="flex flex-col gap-2.5 pt-1">
         {monthsData.map((m) => (
           <div key={m.mk} className="flex flex-col gap-1">
-            <div className="flex items-center justify-between text-xs text-slate-500">
-              <span className="capitalize">{monthLabel(m.mk)}</span>
-              <span className={`font-semibold ${m.saldo >= 0 ? "text-sky-600" : "text-rose-600"}`}>{fmt(m.saldo, currency)}</span>
-            </div>
+            <div className="text-xs text-slate-500 capitalize">{monthLabel(m.mk)}</div>
             <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
               <div className="h-full bg-emerald-400" style={{ width: `${(m.ingreso / maxVal) * 100}%` }} />
             </div>
@@ -603,22 +650,11 @@ function FinancialHealthPanel({ data, currency }) {
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400" /> Crédito</span>
         </div>
       </div>
-
-      <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-100">
-        <span className="text-slate-500">🐷 Ahorro disponible</span>
-        <span className="font-semibold text-slate-700">{fmt(disponible, currency)}</span>
-      </div>
-      {reservado > 0 && (
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-slate-500">🎯 Ahorro reservado</span>
-          <span className="font-semibold text-slate-700">{fmt(reservado, currency)}</span>
-        </div>
-      )}
     </div>
   );
 }
 
-function EntryTab({ addTransaction, config, data, setHiddenLoans, setFxRate }) {
+function EntryTab({ addTransaction, config, data, setHiddenLoans, setFxRate, setDailyEstimate }) {
   const [path, setPath] = useState([]);
   const [step, setStep] = useState("cat");
   const [freeTextInput, setFreeTextInput] = useState("");
@@ -833,7 +869,7 @@ function EntryTab({ addTransaction, config, data, setHiddenLoans, setFxRate }) {
               );
             })}
           </div>
-          <FinancialHealthPanel data={data} currency={currency} />
+          <FinancialHealthPanel data={data} currency={currency} setDailyEstimate={setDailyEstimate} />
         </div>
       )}
 
@@ -1858,49 +1894,62 @@ function PatrimonioTab({ data, saveAsset, deleteAsset }) {
 /* ------------------------------------------------------------------ */
 
 function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
-  const [showForm, setShowForm] = useState(false);
+  const [addingType, setAddingType] = useState(null); // null | "compra" | "proyecto"
   const [editingId, setEditingId] = useState(null);
   const [name, setName] = useState("");
-  const [type, setType] = useState("compra");
   const [pcurrency, setPCurrency] = useState("CHF");
   const [items, setItems] = useState([]);
+  const [amount, setAmount] = useState("0"); // usado en modo "compra"
   const [itemName, setItemName] = useState("");
   const [itemPrice, setItemPrice] = useState("0");
   const [confirmId, setConfirmId] = useState(null);
+
+  const [showTransfer, setShowTransfer] = useState(false);
+  const [transferAmount, setTransferAmount] = useState("0");
+  const [transferTarget, setTransferTarget] = useState("CHF");
+  const [transferCHF, setTransferCHF] = useState(0);
+  const [transferARS, setTransferARS] = useState(0);
 
   const now = new Date();
   const currentMK = monthKey(now);
   const effMonth = (t) => t.chargeMonth || monthKey(new Date(t.ts));
 
-  function excedente(cur) {
+  function excedenteReal(cur) {
     const gasto = data.transactions
       .filter((t) => t.currency === cur && effMonth(t) === currentMK)
       .reduce((s, t) => s + t.amount, 0);
     const ingreso = data.income[`${currentMK}:${cur}`]?.amount || 0;
     return ingreso - gasto;
   }
-  const excedenteCHF = excedente("CHF");
-  const excedenteARS = excedente("ARS");
-  const disponible = data.savings.filter((m) => !m.purpose).reduce((s, m) => s + m.amount, 0);
+  const proyectos = data.proyectos || [];
+  const totalGuardado = (cur) =>
+    proyectos.filter((p) => p.currency === cur).reduce((s, p) => s + (p.items || []).reduce((s2, i) => s2 + i.price, 0), 0);
 
-  function startNew() {
+  // Los totales ya guardados (compras/proyectos) y las transferencias desde
+  // Ahorro impactan en vivo sobre el excedente mostrado — es una vista de
+  // planificación, no mueve plata real entre pestañas.
+  const excedenteCHF = excedenteReal("CHF") - totalGuardado("CHF") + transferCHF;
+  const excedenteARS = excedenteReal("ARS") - totalGuardado("ARS") + transferARS;
+  const disponible = data.savings.filter((m) => !m.purpose).reduce((s, m) => s + m.amount, 0) - transferCHF - transferARS;
+
+  function startNew(type) {
     setEditingId(null);
     setName("");
-    setType("compra");
     setPCurrency("CHF");
     setItems([]);
+    setAmount("0");
     setItemName("");
     setItemPrice("0");
-    setShowForm(true);
+    setAddingType(type);
   }
 
   function startEdit(p) {
     setEditingId(p.id);
     setName(p.name);
-    setType(p.type);
     setPCurrency(p.currency);
     setItems(p.items || []);
-    setShowForm(true);
+    setAmount(p.items && p.items[0] ? String(p.items[0].price) : "0");
+    setAddingType(p.type);
   }
 
   function addItem() {
@@ -1914,14 +1963,34 @@ function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
     setItems(items.filter((i) => i.id !== id));
   }
 
-  function save() {
-    if (!name.trim() || items.length === 0) return;
-    saveProyecto({ id: editingId || uid(), name: name.trim(), type, currency: pcurrency, items });
-    setShowForm(false);
+  function saveCompra() {
+    if (!name.trim() || !parseFloat(amount)) return;
+    saveProyecto({
+      id: editingId || uid(),
+      name: name.trim(),
+      type: "compra",
+      currency: pcurrency,
+      items: [{ id: uid(), name: name.trim(), price: parseFloat(amount) }],
+    });
+    setAddingType(null);
   }
 
-  const total = items.reduce((s, i) => s + i.price, 0);
-  const excedenteActivo = pcurrency === "CHF" ? excedenteCHF : excedenteARS;
+  function saveProyectoMulti() {
+    if (!name.trim() || items.length === 0) return;
+    saveProyecto({ id: editingId || uid(), name: name.trim(), type: "proyecto", currency: pcurrency, items });
+    setAddingType(null);
+  }
+
+  function doTransfer() {
+    const n = parseFloat(transferAmount);
+    if (!n) return;
+    if (transferTarget === "CHF") setTransferCHF((v) => v + n);
+    else setTransferARS((v) => v + n);
+    setTransferAmount("0");
+    setShowTransfer(false);
+  }
+
+  const totalProyecto = items.reduce((s, i) => s + i.price, 0);
 
   return (
     <div className="p-4 flex flex-col gap-4 overflow-y-auto h-full">
@@ -1935,37 +2004,115 @@ function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
           <div className="text-sm font-bold text-amber-800">{fmt(excedenteARS, "ARS")}</div>
         </div>
       </div>
-      <div className="bg-emerald-50 rounded-2xl p-3 text-center">
-        <div className="text-xs text-emerald-700 font-medium">🐷 Ahorro disponible</div>
-        <div className="text-sm font-bold text-emerald-800">{fmt(disponible, "USD")}</div>
-      </div>
 
-      {!showForm ? (
-        <button onClick={startNew} className="bg-slate-800 text-white rounded-xl py-2.5 text-sm font-semibold">
-          ➕ Nueva compra o proyecto
-        </button>
-      ) : (
+      <button
+        onClick={() => setShowTransfer((v) => !v)}
+        className="bg-emerald-50 rounded-2xl p-3 text-center active:bg-emerald-100"
+      >
+        <div className="text-xs text-emerald-700 font-medium">🐷 Ahorro disponible (tocá para transferir)</div>
+        <div className="text-sm font-bold text-emerald-800">{fmt(disponible)}</div>
+      </button>
+
+      {showTransfer && (
+        <div className="bg-slate-50 rounded-2xl p-3 flex flex-col gap-2">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setTransferTarget("CHF")}
+              className={`rounded-xl py-2 text-sm font-semibold ${transferTarget === "CHF" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"}`}
+            >
+              🇨🇭 A excedente CHF
+            </button>
+            <button
+              onClick={() => setTransferTarget("ARS")}
+              className={`rounded-xl py-2 text-sm font-semibold ${transferTarget === "ARS" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"}`}
+            >
+              🇦🇷 A excedente ARS
+            </button>
+          </div>
+          <input
+            type="number"
+            value={transferAmount}
+            onChange={(e) => setTransferAmount(e.target.value)}
+            placeholder="Monto a transferir"
+            className="border-2 border-slate-200 rounded-xl px-3 py-2 text-sm"
+          />
+          <button
+            onClick={doTransfer}
+            disabled={!parseFloat(transferAmount)}
+            className="rounded-xl py-2 text-sm font-semibold text-white bg-emerald-500 disabled:opacity-40"
+          >
+            Transferir
+          </button>
+          <p className="text-[10px] text-slate-400">Esto solo ajusta la vista de esta pestaña, no mueve plata real de Ahorro.</p>
+        </div>
+      )}
+
+      {addingType === null ? (
+        <div className="grid grid-cols-2 gap-2">
+          <button onClick={() => startNew("compra")} className="bg-slate-800 text-white rounded-xl py-3 text-sm font-semibold">
+            🛍️ Compra
+          </button>
+          <button onClick={() => startNew("proyecto")} className="bg-slate-800 text-white rounded-xl py-3 text-sm font-semibold">
+            🏗️ Proyecto
+          </button>
+        </div>
+      ) : addingType === "compra" ? (
         <div className="bg-slate-50 rounded-2xl p-4 flex flex-col gap-3">
+          <p className="text-sm font-semibold text-slate-700">🛍️ Compra</p>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Nombre (ej: Dron, Galería patio)"
+            placeholder="Ej: Dron, aspiradora"
             className="border-2 border-slate-200 rounded-xl px-3 py-2 text-sm"
           />
           <div className="grid grid-cols-2 gap-2">
             <button
-              onClick={() => setType("compra")}
-              className={`rounded-xl py-2 text-sm font-semibold ${type === "compra" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"}`}
+              onClick={() => setPCurrency("CHF")}
+              className={`rounded-xl py-2 text-sm font-semibold ${pcurrency === "CHF" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"}`}
             >
-              🛍️ Compra
+              🇨🇭 CHF
             </button>
             <button
-              onClick={() => setType("proyecto")}
-              className={`rounded-xl py-2 text-sm font-semibold ${type === "proyecto" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"}`}
+              onClick={() => setPCurrency("ARS")}
+              className={`rounded-xl py-2 text-sm font-semibold ${pcurrency === "ARS" ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200"}`}
             >
-              🏗️ Proyecto
+              🇦🇷 ARS
             </button>
           </div>
+          <div className="text-2xl font-bold text-center tabular-nums text-slate-800">{pcurrency} {amount}</div>
+          <Keypad value={amount} onChange={setAmount} />
+
+          {parseFloat(amount) > 0 && (
+            <div className="text-xs text-slate-500 text-center">
+              Excedente {pcurrency}: {fmt(pcurrency === "CHF" ? excedenteCHF : excedenteARS, pcurrency)} → quedaría en{" "}
+              <span className={(pcurrency === "CHF" ? excedenteCHF : excedenteARS) - parseFloat(amount) >= 0 ? "text-sky-600 font-semibold" : "text-rose-600 font-semibold"}>
+                {fmt((pcurrency === "CHF" ? excedenteCHF : excedenteARS) - parseFloat(amount), pcurrency)}
+              </span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => setAddingType(null)} className="rounded-xl py-2.5 text-sm font-semibold text-slate-500 bg-slate-200">
+              Cancelar
+            </button>
+            <button
+              onClick={saveCompra}
+              disabled={!name.trim() || !parseFloat(amount)}
+              className="rounded-xl py-2.5 text-sm font-semibold text-white bg-emerald-500 disabled:opacity-40"
+            >
+              Guardar
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-slate-50 rounded-2xl p-4 flex flex-col gap-3">
+          <p className="text-sm font-semibold text-slate-700">🏗️ Proyecto</p>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Ej: Galería del patio"
+            className="border-2 border-slate-200 rounded-xl px-3 py-2 text-sm"
+          />
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => setPCurrency("CHF")}
@@ -1998,7 +2145,7 @@ function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
           <input
             value={itemName}
             onChange={(e) => setItemName(e.target.value)}
-            placeholder="Ítem (ej: Cámara, Materiales)"
+            placeholder="Ítem (ej: Materiales, Mano de obra)"
             className="border-2 border-slate-200 rounded-xl px-3 py-2 text-sm"
           />
           <div className="text-2xl font-bold text-center tabular-nums text-slate-800">{pcurrency} {itemPrice}</div>
@@ -2013,25 +2160,24 @@ function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
 
           <div className="bg-white rounded-xl p-3 text-center border border-slate-200">
             <div className="text-xs text-slate-500">Total estimado</div>
-            <div className="text-xl font-bold text-slate-800">{fmt(total, pcurrency)}</div>
+            <div className="text-xl font-bold text-slate-800">{fmt(totalProyecto, pcurrency)}</div>
           </div>
 
-          {total > 0 && (
+          {totalProyecto > 0 && (
             <div className="text-xs text-slate-500 text-center">
-              Excedente de este mes ({pcurrency}): {fmt(excedenteActivo, pcurrency)} → quedaría en{" "}
-              <span className={excedenteActivo - total >= 0 ? "text-sky-600 font-semibold" : "text-rose-600 font-semibold"}>
-                {fmt(excedenteActivo - total, pcurrency)}
-              </span>{" "}
-              si lo hacés este mes
+              Excedente {pcurrency}: {fmt(pcurrency === "CHF" ? excedenteCHF : excedenteARS, pcurrency)} → quedaría en{" "}
+              <span className={(pcurrency === "CHF" ? excedenteCHF : excedenteARS) - totalProyecto >= 0 ? "text-sky-600 font-semibold" : "text-rose-600 font-semibold"}>
+                {fmt((pcurrency === "CHF" ? excedenteCHF : excedenteARS) - totalProyecto, pcurrency)}
+              </span>
             </div>
           )}
 
           <div className="grid grid-cols-2 gap-2">
-            <button onClick={() => setShowForm(false)} className="rounded-xl py-2.5 text-sm font-semibold text-slate-500 bg-slate-200">
+            <button onClick={() => setAddingType(null)} className="rounded-xl py-2.5 text-sm font-semibold text-slate-500 bg-slate-200">
               Cancelar
             </button>
             <button
-              onClick={save}
+              onClick={saveProyectoMulti}
               disabled={!name.trim() || items.length === 0}
               className="rounded-xl py-2.5 text-sm font-semibold text-white bg-emerald-500 disabled:opacity-40"
             >
@@ -2042,7 +2188,7 @@ function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
       )}
 
       <div className="flex flex-col gap-2">
-        {(data.proyectos || []).map((p) => {
+        {proyectos.map((p) => {
           const t = (p.items || []).reduce((s, i) => s + i.price, 0);
           return (
             <div key={p.id} className="bg-white border border-slate-100 rounded-2xl p-3 flex items-center gap-3">
@@ -2051,7 +2197,9 @@ function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
               </div>
               <button className="flex-1 min-w-0 text-left" onClick={() => startEdit(p)}>
                 <div className="text-sm font-semibold text-slate-800 truncate">{p.name}</div>
-                <div className="text-xs text-slate-400">{(p.items || []).length} ítem(s)</div>
+                <div className="text-xs text-slate-400">
+                  {p.type === "compra" ? "Compra" : `Proyecto · ${(p.items || []).length} ítem(s)`}
+                </div>
               </button>
               <div className="text-sm font-bold text-slate-700 whitespace-nowrap">{fmt(t, p.currency)}</div>
               {confirmId === p.id ? (
@@ -2070,7 +2218,7 @@ function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
             </div>
           );
         })}
-        {(!data.proyectos || data.proyectos.length === 0) && (
+        {proyectos.length === 0 && (
           <p className="text-center text-slate-400 text-sm py-8">Todavía no cargaste ninguna compra o proyecto.</p>
         )}
       </div>
@@ -2085,7 +2233,7 @@ function ProyectosTab({ data, saveProyecto, deleteProyecto }) {
 function App() {
   const {
     data, ready, saveError, refresh, addTransaction, deleteTransaction, setIncome,
-    setCierreDay, setFxRate, setHiddenLoans, saveAsset, deleteAsset, addSavingsMovement, deleteSavingsMovement,
+    setCierreDay, setFxRate, setDailyEstimate, setHiddenLoans, saveAsset, deleteAsset, addSavingsMovement, deleteSavingsMovement,
     saveProyecto, deleteProyecto,
   } = useSharedData();
   const [tab, setTab] = useState("entry");
@@ -2101,7 +2249,7 @@ function App() {
     { key: "proximos", label: "Próximos meses", emoji: "📅" },
     { key: "ahorro", label: "Ahorro", emoji: "🐷", icon: "icon-ahorro.png" },
     { key: "patrimonio", label: "Patrimonio", emoji: "🏛️" },
-    { key: "proyectos", label: "Compras/Proyectos", emoji: "🛍️" },
+    { key: "proyectos", label: "Compras/\nProyectos", emoji: "🛍️" },
     { key: "historial", label: "Historial", emoji: "🧾" },
   ];
 
@@ -2124,7 +2272,7 @@ function App() {
         {!ready ? (
           <div className="h-full flex items-center justify-center text-slate-400 text-sm">Cargando…</div>
         ) : tab === "entry" ? (
-          <EntryTab addTransaction={addTransaction} config={data.config} data={data} setHiddenLoans={setHiddenLoans} setFxRate={setFxRate} />
+          <EntryTab addTransaction={addTransaction} config={data.config} data={data} setHiddenLoans={setHiddenLoans} setFxRate={setFxRate} setDailyEstimate={setDailyEstimate} />
         ) : tab === "balance" ? (
           <BalanceTab data={data} currency={viewCurrency} setCurrency={setViewCurrency} setIncome={setIncome} />
         ) : tab === "proximos" ? (
@@ -2154,7 +2302,7 @@ function App() {
             ) : (
               <span className="text-base">{t.emoji}</span>
             )}
-            {t.label}
+            <span style={{ whiteSpace: "pre-line" }}>{t.label}</span>
           </button>
         ))}
       </div>
