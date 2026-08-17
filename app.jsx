@@ -643,35 +643,13 @@ function FinancialHealthPanel({ data, currency, setDailyEstimate }) {
 
   return (
     <div className="mx-4 mb-4 bg-white rounded-2xl border border-slate-100 p-4 flex flex-col gap-3">
-      <div className="text-sm font-bold text-slate-700 flex items-center gap-2">
-        <img src="apple-touch-icon.png" alt="" className="w-5 h-5 rounded" />
-        {panelTitle}
+      <div className="flex flex-col items-center gap-1.5 text-center">
+        <img src="apple-touch-icon.png" alt="" className="w-9 h-9 rounded-lg" />
+        <div className="text-2xl font-bold text-slate-700">{panelTitle}</div>
       </div>
       <div className={`rounded-xl p-2.5 flex items-start gap-2 ${status.bg}`}>
         <span>{status.emoji}</span>
-        <span className={`text-xs font-semibold ${status.text}`}>{status.label}</span>
-      </div>
-      <div className="flex items-center justify-between text-xs text-slate-500">
-        <span>Saldo del mes ({diasHastaIngreso} días para el próximo ingreso)</span>
-        <span className={`font-semibold ${saldoActual >= 0 ? "text-sky-600" : "text-rose-600"}`}>{fmt(saldoActual, currency)}</span>
-      </div>
-      <div className="text-[10px] text-slate-400">
-        {!editingDaily ? (
-          <button onClick={() => { setDailyInput(String(dailyEstimate)); setEditingDaily(true); }} className="underline">
-            ⚙️ Gasto diario estimado (2 personas): {fmt(dailyEstimate, currency)}/día
-          </button>
-        ) : (
-          <div className="flex items-center gap-2 flex-wrap">
-            <input
-              type="number"
-              value={dailyInput}
-              onChange={(e) => setDailyInput(e.target.value)}
-              className="w-24 border border-slate-300 rounded-lg px-2 py-1 text-slate-700 text-xs"
-            />
-            <button onClick={saveDaily} className="text-emerald-600 font-semibold">Guardar</button>
-            <button onClick={() => setEditingDaily(false)} className="text-slate-400">Cancelar</button>
-          </div>
-        )}
+        <span className={`text-xs font-semibold ${status.text}`}>Estado: {status.label}</span>
       </div>
 
       <div className="flex flex-col gap-2.5 pt-1">
@@ -698,6 +676,29 @@ function FinancialHealthPanel({ data, currency, setDailyEstimate }) {
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-400" /> Gastos variables</span>
         </div>
       </div>
+
+      <div className="flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-100">
+        <span>Saldo del mes ({diasHastaIngreso} días para el próximo ingreso)</span>
+        <span className={`font-semibold ${saldoActual >= 0 ? "text-sky-600" : "text-rose-600"}`}>{fmt(saldoActual, currency)}</span>
+      </div>
+      <div className="text-[10px] text-slate-400">
+        {!editingDaily ? (
+          <button onClick={() => { setDailyInput(String(dailyEstimate)); setEditingDaily(true); }} className="underline">
+            ⚙️ Gasto diario estimado (2 personas): {fmt(dailyEstimate, currency)}/día
+          </button>
+        ) : (
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              type="number"
+              value={dailyInput}
+              onChange={(e) => setDailyInput(e.target.value)}
+              className="w-24 border border-slate-300 rounded-lg px-2 py-1 text-slate-700 text-xs"
+            />
+            <button onClick={saveDaily} className="text-emerald-600 font-semibold">Guardar</button>
+            <button onClick={() => setEditingDaily(false)} className="text-slate-400">Cancelar</button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -710,7 +711,7 @@ function EntryTab({ addTransaction, config, data, setHiddenLoans, setFxRate, set
   const [amount, setAmount] = useState("0");
   const [concept, setConcept] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("no_credito");
-  const [currency, setCurrency] = useState(config.lastCurrency || "CHF");
+  const [currency, setCurrency] = useState("CHF");
   const [dateInput, setDateInput] = useState(toDatetimeLocalValue(new Date()));
   const [editingDate, setEditingDate] = useState(false);
   const [simMonto, setSimMonto] = useState("");
