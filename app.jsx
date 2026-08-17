@@ -158,9 +158,9 @@ const CATS_CHF = [
     subs: null, conceptPlaceholder: "Ej: zapatillas, campera, ropa interior",
   },
   {
-    key: "casa", label: "Casa", emoji: "🛋️", icon: "icon-casa.png",
+    key: "casa", label: "Hogar & Tecno", emoji: "🛋️", icon: "icon-casa.png",
     color: "#d9ac5c", light: "#faf0dc", dark: "#6b4d16",
-    subs: null, conceptPlaceholder: "Ej: mueble, arreglo, decoración",
+    subs: null, conceptPlaceholder: "Ej: mueble, decoración, auriculares, gadget",
   },
   {
     key: "varios", label: "Varios", emoji: "🔀", icon: "icon-varios.png",
@@ -252,9 +252,9 @@ const CATS_ARS = [
     subs: null, conceptPlaceholder: "Ej: zapatillas, campera, ropa interior",
   },
   {
-    key: "casa_ar", label: "Casa", emoji: "🛋️", icon: "icon-casa.png",
+    key: "casa_ar", label: "Hogar & Tecno", emoji: "🛋️", icon: "icon-casa.png",
     color: "#d9ac5c", light: "#faf0dc", dark: "#6b4d16",
-    subs: null, conceptPlaceholder: "Ej: mueble, arreglo, decoración",
+    subs: null, conceptPlaceholder: "Ej: mueble, decoración, auriculares, gadget",
   },
   {
     key: "varios_ar", label: "Varios", emoji: "🔀", icon: "icon-varios.png",
