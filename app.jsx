@@ -360,7 +360,8 @@ function formatDateShort(d) {
 function monthLabel(mk) {
   const [y, m] = mk.split("-").map(Number);
   const d = new Date(y, m - 1, 1);
-  return d.toLocaleDateString("es-AR", { month: "long", year: "numeric" });
+  const raw = d.toLocaleDateString("es-AR", { month: "long", year: "numeric" });
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 function fmt(n, currency) {
   return `${currency || CURRENCY} ${Number(n || 0).toLocaleString("es-AR", {
@@ -692,13 +693,13 @@ function FinancialHealthPanel({ data, currency, setDailyEstimate }) {
 
   let status;
   if (ratio >= 125) {
-    status = { emoji: "🟢", bg: "bg-emerald-50", text: "text-emerald-700", label: "¡El mango crece!" };
+    status = { img: "apple-touch-icon.png", text: "text-emerald-700", label: "¡El mango crece!" };
   } else if (ratio >= 100) {
-    status = { emoji: "🟢", bg: "bg-emerald-50", text: "text-emerald-700", label: "Mango con buena salud" };
+    status = { img: "apple-touch-icon.png", text: "text-emerald-700", label: "Mango con buena salud" };
   } else if (ratio >= 75) {
-    status = { emoji: "🟡", bg: "bg-amber-50", text: "text-amber-700", label: "Ojo con el mango" };
+    status = { img: "apple-touch-icon.png", text: "text-amber-700", label: "Ojo con el mango" };
   } else {
-    status = { emoji: "🔴", bg: "bg-rose-50", text: "text-rose-700", label: "Se pudrió el mango" };
+    status = { img: "apple-touch-icon.png", text: "text-rose-700", label: "Se pudrió el mango" };
   }
 
   const [editingDaily, setEditingDaily] = useState(false);
@@ -713,36 +714,41 @@ function FinancialHealthPanel({ data, currency, setDailyEstimate }) {
 
   const maxVal = Math.max(1, ...monthsData.flatMap((m) => [m.ingreso, m.gastoFijo + m.credito + m.variables]));
   const panelTitle = currency === "CHF" ? "La salud del mango suizo" : "La salud del mango argentino";
+  const MANGO_GREEN = "#324021";
 
   return (
-    <div className="mx-4 mb-4 bg-white rounded-2xl border border-slate-100 p-4 flex flex-col gap-3">
-      <div className="flex flex-col items-center gap-1.5 text-center">
-        <img src="apple-touch-icon.png" alt="" className="w-9 h-9 rounded-lg" />
-        <div className="text-2xl font-bold text-slate-700">{panelTitle}</div>
-      </div>
-      <div className={`rounded-xl p-2.5 flex items-start gap-2 ${status.bg}`}>
-        <span>{status.emoji}</span>
-        <span className={`text-xs font-semibold ${status.text}`}>Estado: {status.label}</span>
+    <div className="mx-4 mb-4 flex flex-col gap-3">
+      <div className="text-2xl font-bold text-center" style={{ color: MANGO_GREEN }}>{panelTitle}</div>
+      <div className="flex flex-col items-center gap-1">
+        <img src={status.img} alt={status.label} className="w-24 h-24 object-contain" />
+        <div className={`text-sm font-bold ${status.text}`}>{status.label}</div>
       </div>
 
       <div className="flex flex-col gap-2.5 pt-1">
-        {monthsData.map((m) => (
-          <div key={m.mk} className="flex flex-col gap-1">
-            <div className="text-xs text-slate-500 capitalize">{monthLabel(m.mk)}</div>
-            <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-              <div className="h-full bg-emerald-400" style={{ width: `${(m.ingreso / maxVal) * 100}%` }} />
+        {monthsData.map((m) => {
+          const saldoMes = m.ingreso - (m.gastoFijo + m.credito + m.variables);
+          return (
+            <div key={m.mk} className="flex flex-col gap-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs" style={{ color: MANGO_GREEN }}>{monthLabel(m.mk)}</span>
+                <span className="text-xs font-bold text-sky-600">{fmt(saldoMes, currency)}</span>
+              </div>
+              <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                <div className="h-full bg-emerald-400" style={{ width: `${(m.ingreso / maxVal) * 100}%` }} />
+              </div>
+              <div className="h-2 rounded-full bg-slate-100 overflow-hidden flex">
+                <div
+                  className="h-full bg-yellow-400"
+                  style={{ width: `${(m.gastoFijo / maxVal) * 100}%`, opacity: m.gastoFijoEstimado ? 0.55 : 1 }}
+                />
+                <div className="h-full bg-orange-400" style={{ width: `${(m.credito / maxVal) * 100}%` }} />
+                <div className="h-full bg-rose-400" style={{ width: `${(m.variables / maxVal) * 100}%` }} />
+              </div>
             </div>
-            <div className="h-2 rounded-full bg-slate-100 overflow-hidden flex">
-              <div
-                className="h-full bg-yellow-400"
-                style={{ width: `${(m.gastoFijo / maxVal) * 100}%`, opacity: m.gastoFijoEstimado ? 0.55 : 1 }}
-              />
-              <div className="h-full bg-orange-400" style={{ width: `${(m.credito / maxVal) * 100}%` }} />
-              <div className="h-full bg-rose-400" style={{ width: `${(m.variables / maxVal) * 100}%` }} />
-            </div>
-          </div>
-        ))}
+          );
+        })}
         <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-0.5 flex-wrap">
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-sky-500" /> Saldo del mes</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400" /> Ingreso</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-400" /> Gastos fijos</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400" /> Crédito</span>
@@ -750,7 +756,7 @@ function FinancialHealthPanel({ data, currency, setDailyEstimate }) {
         </div>
       </div>
 
-      <div className="flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-100">
+      <div className="flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-200">
         <span>Saldo del mes ({diasHastaIngreso} días para el próximo ingreso)</span>
         <span className={`font-semibold ${saldoActual >= 0 ? "text-sky-600" : "text-rose-600"}`}>{fmt(saldoActual, currency)}</span>
       </div>
@@ -1406,7 +1412,7 @@ function MonthSummary({ mk, currency, ingreso, transactions, incomeMovements, on
 
   return (
     <div className="flex flex-col gap-2">
-      <h3 className="text-sm font-bold text-slate-700 capitalize">{monthLabel(mk)}</h3>
+      <h3 className="text-sm font-bold text-slate-700">{monthLabel(mk)}</h3>
       <div className="grid grid-cols-3 gap-2">
         <button
           onClick={toggleIncome}
@@ -1667,11 +1673,11 @@ function HistorialTab({ data, currency, setCurrency, deleteTransaction }) {
         <select
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          className="border-2 border-slate-200 rounded-xl px-3 py-2 text-sm capitalize flex-1"
+          className="border-2 border-slate-200 rounded-xl px-3 py-2 text-sm flex-1"
         >
           {months.length === 0 && <option value={filter}>{monthLabel(filter)}</option>}
           {months.map((mk) => (
-            <option key={mk} value={mk} className="capitalize">{monthLabel(mk)}</option>
+            <option key={mk} value={mk}>{monthLabel(mk)}</option>
           ))}
         </select>
         <button onClick={exportCSV} className="bg-slate-800 text-white rounded-xl px-3 py-2 text-sm font-semibold whitespace-nowrap">
@@ -2558,16 +2564,19 @@ function App() {
 
   return (
     <div className="w-full h-[100dvh] bg-slate-50 flex flex-col overflow-hidden">
-      <div className="bg-slate-900 text-white px-4 py-3 flex items-center justify-between pt-safe">
-        <span className="flex items-center gap-2 font-bold">
-          <img src="apple-touch-icon.png" alt="" className="w-7 h-7 rounded-lg" />
-          Mango
-        </span>
-        <div className="flex items-center gap-3">
-          {saveError && <span className="text-[10px] text-amber-300">⚠ sin conexión al Sheet</span>}
-          {tab !== "entry" && (
-            <button onClick={refresh} className="text-xs text-slate-300 active:text-white">↻</button>
-          )}
+      <div className="bg-slate-900 text-white px-4 pb-3 flex flex-col items-center gap-1.5 pt-safe">
+        <img src="apple-touch-icon.png" alt="Mango" className="w-20 h-20 rounded-2xl" />
+        <div className="w-full flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {saveError && <span className="text-[10px] text-amber-300">⚠ sin conexión al Sheet</span>}
+            {tab !== "entry" && (
+              <button onClick={refresh} className="text-xs text-slate-300 active:text-white">↻</button>
+            )}
+          </div>
+          <div className="flex items-baseline gap-1.5">
+            <span className="font-bold text-lg">Mango</span>
+            <span className="text-[9px] text-slate-500">v3</span>
+          </div>
         </div>
       </div>
 
