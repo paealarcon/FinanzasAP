@@ -984,12 +984,14 @@ function EntryTab({ addTransaction, config, data, setHiddenLoans, setFxRate, set
                 >
                   <div className="flex-1 w-full min-h-0 flex items-center justify-center">
                     {c.icon ? (
-                      <img src={c.icon} alt="" className="max-h-full max-w-full object-contain" />
+                      <img src={c.icon} alt={c.label} className="max-h-full max-w-full object-contain" />
                     ) : (
-                      <span className="text-4xl">{c.emoji}</span>
+                      <>
+                        <span className="text-4xl">{c.emoji}</span>
+                        <span className="text-sm font-semibold text-center leading-tight pb-1">{c.label}</span>
+                      </>
                     )}
                   </div>
-                  <span className="text-sm font-semibold text-center leading-tight pb-1">{c.label}</span>
                 </button>
               );
             })}
@@ -1827,7 +1829,6 @@ function AhorroTab({ data, addSavingsMovement, deleteSavingsMovement }) {
       <div className="bg-emerald-50 rounded-2xl px-6 py-5 text-center w-full">
         <button onClick={() => setShowLocations((v) => !v)} className="mx-auto mb-2 block active:scale-95 transition-transform">
           <img src="icon-ahorro.png" alt="" className="w-24 h-24 object-contain mx-auto" />
-          <span className="text-[10px] text-emerald-600 underline">Ver dónde está guardado</span>
         </button>
         <div className="text-sm text-emerald-700 font-medium">Disponible</div>
         <div className="text-4xl font-bold text-emerald-800 mt-1">{fmt(disponible)}</div>
@@ -2546,13 +2547,13 @@ function App() {
   }, [tab, refresh]);
 
   const tabs = [
-    { key: "entry", label: "Cargar", emoji: "➕" },
-    { key: "balance", label: "Balance mensual", emoji: "📊" },
-    { key: "proximos", label: "Próximos meses", emoji: "📅" },
-    { key: "ahorro", label: "Ahorro", emoji: "🐷", icon: "icon-ahorro.png" },
-    { key: "patrimonio", label: "Patrimonio", emoji: "🏛️" },
-    { key: "proyectos", label: "Compras/\nProyectos", emoji: "🛍️" },
-    { key: "historial", label: "Historial", emoji: "🧾" },
+    { key: "entry", label: "Cargar", emoji: "➕", icon: "nav-cargar.png" },
+    { key: "balance", label: "Balance mensual", emoji: "📊", icon: "nav-balance.png" },
+    { key: "proximos", label: "Próximos meses", emoji: "📅", icon: "nav-proximos.png" },
+    { key: "ahorro", label: "Ahorro", emoji: "🐷", icon: "nav-ahorro.png" },
+    { key: "patrimonio", label: "Patrimonio", emoji: "🏛️", icon: "nav-patrimonio.png" },
+    { key: "proyectos", label: "Compras/\nProyectos", emoji: "🛍️", icon: "nav-proyectos.png" },
+    { key: "historial", label: "Historial", emoji: "🧾", icon: "nav-historial.png" },
   ];
 
   return (
