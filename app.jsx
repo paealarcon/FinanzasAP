@@ -91,6 +91,14 @@ function buildTerrenoInstallments() {
 }
 const LOAN_TERRENO_TOTAL_INSTALLMENTS = LOAN_TERRENO_CUOTA_FIN - LOAN_TERRENO_CUOTA_INICIO + 1;
 
+// Préstamos con calendario de vencimiento fijo por mes (clave "cuota-YYYY-MM").
+// Luis-Terreno, Procrear, Marcelita, etc. no tienen fecha asignada por cuota,
+// así que no entran acá — si en el futuro alguno la tiene, se agrega a esta lista.
+const SCHEDULED_LOANS = {
+  CHF: [{ catKey: "prestamos", subLabel: "UBS", installments: buildLoanInstallments() }],
+  ARS: [],
+};
+
 function loanDebtInfo(subKey, data) {
   if (subKey === "ubs") {
     const pagadas = data.transactions.filter((t) => t.categoryKey === "prestamos" && t.subcategory === "UBS").length;
@@ -618,6 +626,18 @@ function FinancialHealthPanel({ data, currency, setDailyEstimate }) {
       if (FIXED_CAT_KEYS.includes(t.categoryKey)) fijosReal += t.amount;
       else if (LOAN_CAT_KEYS.includes(t.categoryKey) || t.paymentMethod === "credito") credito += t.amount;
       else variables += t.amount;
+    });
+    // Préstamos con vencimiento fijo (ej. UBS) que caen este mes calendario:
+    // si esa cuota puntual todavía no se cargó como gasto real, se suma acá
+    // como proyectado — así octubre ya "ve" la cuota UBS aunque no se haya
+    // tocado el botón todavía.
+    (SCHEDULED_LOANS[currency] || []).forEach((loan) => {
+      const inst = loan.installments.find((ins) => ins.key === `cuota-${mk}`);
+      if (!inst) return;
+      const yaCargada = data.transactions.some(
+        (t) => t.currency === currency && t.categoryKey === loan.catKey && t.subcategory === loan.subLabel && t.detail === inst.label
+      );
+      if (!yaCargada) credito += inst.fixedAmount;
     });
     const gastoTotal = monthTx.reduce((s, t) => s + t.amount, 0);
     const ingreso = data.income[`${mk}:${currency}`]?.amount || 0;
