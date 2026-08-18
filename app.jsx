@@ -420,7 +420,13 @@ function useSharedData() {
   }, [mutate]);
 
   const deleteTransaction = useCallback((id) => {
-    setData((prev) => ({ ...prev, transactions: prev.transactions.filter((t) => t.id !== id) }));
+    setData((prev) => {
+      const idx = prev.transactions.findIndex((t) => t.id === id);
+      if (idx === -1) return prev;
+      const next = prev.transactions.slice();
+      next.splice(idx, 1);
+      return { ...prev, transactions: next };
+    });
     mutate({ action: "deleteTransaction", id });
   }, [mutate]);
 
@@ -439,13 +445,17 @@ function useSharedData() {
 
   const deleteIncomeMovement = useCallback((id) => {
     setData((prev) => {
-      const mv = (prev.incomeMovements || []).find((m) => m.id === id);
-      if (!mv) return prev;
+      const list = prev.incomeMovements || [];
+      const idx = list.findIndex((m) => m.id === id);
+      if (idx === -1) return prev;
+      const mv = list[idx];
       const key = `${mv.monthKey}:${mv.currency}`;
       const prevAmt = prev.income[key]?.amount || 0;
+      const next = list.slice();
+      next.splice(idx, 1);
       return {
         ...prev,
-        incomeMovements: (prev.incomeMovements || []).filter((m) => m.id !== id),
+        incomeMovements: next,
         income: { ...prev.income, [key]: { amount: prevAmt - mv.amount, updatedAt: new Date().toISOString() } },
       };
     });
@@ -458,7 +468,13 @@ function useSharedData() {
   }, [mutate]);
 
   const deleteSavingsMovement = useCallback((id) => {
-    setData((prev) => ({ ...prev, savings: prev.savings.filter((m) => m.id !== id) }));
+    setData((prev) => {
+      const idx = prev.savings.findIndex((m) => m.id === id);
+      if (idx === -1) return prev;
+      const next = prev.savings.slice();
+      next.splice(idx, 1);
+      return { ...prev, savings: next };
+    });
     mutate({ action: "deleteSavings", id });
   }, [mutate]);
 
@@ -495,7 +511,13 @@ function useSharedData() {
   }, [mutate]);
 
   const deleteAsset = useCallback((id) => {
-    setData((prev) => ({ ...prev, assets: prev.assets.filter((a) => a.id !== id) }));
+    setData((prev) => {
+      const idx = prev.assets.findIndex((a) => a.id === id);
+      if (idx === -1) return prev;
+      const next = prev.assets.slice();
+      next.splice(idx, 1);
+      return { ...prev, assets: next };
+    });
     mutate({ action: "deleteAsset", id });
   }, [mutate]);
 
@@ -512,7 +534,14 @@ function useSharedData() {
   }, [mutate]);
 
   const deleteProyecto = useCallback((id) => {
-    setData((prev) => ({ ...prev, proyectos: (prev.proyectos || []).filter((p) => p.id !== id) }));
+    setData((prev) => {
+      const list = prev.proyectos || [];
+      const idx = list.findIndex((p) => p.id === id);
+      if (idx === -1) return prev;
+      const next = list.slice();
+      next.splice(idx, 1);
+      return { ...prev, proyectos: next };
+    });
     mutate({ action: "deleteProyecto", id });
   }, [mutate]);
 
@@ -729,6 +758,7 @@ function EntryTab({ addTransaction, config, data, setHiddenLoans, setFxRate, set
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
   const geoRef = useRef(null);
+  const savingRef = useRef(false); // guardia sincrónica: evita duplicar si se toca "Guardar" dos veces rápido
 
   useEffect(() => {
     getLocation().then((loc) => { geoRef.current = loc; });
@@ -828,32 +858,38 @@ function EntryTab({ addTransaction, config, data, setHiddenLoans, setFxRate, set
   }
 
   async function handleSave() {
+    if (savingRef.current) return;
     const num = parseFloat(amount);
     if (!num) return;
+    savingRef.current = true;
     setSaving(true);
-    const loc = geoRef.current || (await getLocation());
-    const now = new Date(dateInput);
-    const tx = {
-      id: uid(),
-      ts: now.toISOString(),
-      amount: num,
-      category: path[0].label,
-      categoryKey: path[0].key,
-      categoryColor: rootAccent,
-      subcategory: path[1]?.label || null,
-      detail: path[2]?.label || null,
-      concept: concept.trim() || null,
-      lat: loc?.lat ?? null,
-      lng: loc?.lng ?? null,
-      paymentMethod,
-      chargeMonth: computeChargeMonth(now, paymentMethod, config.cierreDay),
-      currency,
-    };
-    addTransaction(tx);
-    setSaving(false);
-    setToast("Guardado ✅");
-    reset();
-    getLocation().then((l) => { geoRef.current = l; });
+    try {
+      const loc = geoRef.current || (await getLocation());
+      const now = new Date(dateInput);
+      const tx = {
+        id: uid(),
+        ts: now.toISOString(),
+        amount: num,
+        category: path[0].label,
+        categoryKey: path[0].key,
+        categoryColor: rootAccent,
+        subcategory: path[1]?.label || null,
+        detail: path[2]?.label || null,
+        concept: concept.trim() || null,
+        lat: loc?.lat ?? null,
+        lng: loc?.lng ?? null,
+        paymentMethod,
+        chargeMonth: computeChargeMonth(now, paymentMethod, config.cierreDay),
+        currency,
+      };
+      addTransaction(tx);
+      setToast("Guardado ✅");
+      reset();
+      getLocation().then((l) => { geoRef.current = l; });
+    } finally {
+      setSaving(false);
+      savingRef.current = false;
+    }
   }
 
   const breadcrumb = path.map((p) => `${p.emoji || ""} ${p.label}`).join(" › ");
