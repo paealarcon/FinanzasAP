@@ -99,6 +99,39 @@ const SCHEDULED_LOANS = {
   ARS: [],
 };
 
+// Genera "gastos virtuales" para las cuotas de préstamo que vencen ese mes
+// calendario y todavía no se cargaron como gasto real — así el total de
+// Gastos (y el desglose por categoría) las contempla en Próximos meses y en
+// Salud del mango, de forma consistente en los dos lugares.
+function getProjectedLoanTx(mk, currency, data) {
+  const out = [];
+  (SCHEDULED_LOANS[currency] || []).forEach((loan) => {
+    const inst = loan.installments.find((ins) => ins.key === `cuota-${mk}`);
+    if (!inst) return;
+    const yaCargada = data.transactions.some(
+      (t) => t.currency === currency && t.categoryKey === loan.catKey && t.subcategory === loan.subLabel && t.detail === inst.label
+    );
+    if (yaCargada) return;
+    const catInfo = CAT_BY_KEY[loan.catKey];
+    out.push({
+      id: `projected-${loan.catKey}-${inst.key}`,
+      ts: new Date(`${mk}-01T12:00:00`).toISOString(),
+      amount: inst.fixedAmount,
+      category: catInfo?.label || "Préstamos",
+      categoryKey: loan.catKey,
+      categoryColor: catInfo?.color || "#c17817",
+      subcategory: loan.subLabel,
+      detail: `${inst.label} (proyectado)`,
+      concept: "Cuota proyectada — todavía no cargada",
+      paymentMethod: "no_credito",
+      chargeMonth: mk,
+      currency,
+      projected: true,
+    });
+  });
+  return out;
+}
+
 function loanDebtInfo(subKey, data) {
   if (subKey === "ubs") {
     const pagadas = data.transactions.filter((t) => t.categoryKey === "prestamos" && t.subcategory === "UBS").length;
@@ -618,7 +651,10 @@ function FinancialHealthPanel({ data, currency, setDailyEstimate }) {
   const monthsData = [0, 1, 2].map((offset) => {
     const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
     const mk = monthKey(d);
-    const monthTx = data.transactions.filter((t) => t.currency === currency && effMonth(t) === mk);
+    const monthTx = [
+      ...data.transactions.filter((t) => t.currency === currency && effMonth(t) === mk),
+      ...getProjectedLoanTx(mk, currency, data),
+    ];
     // Cada gasto cae en UNA sola categoría (sin doble conteo), para que
     // fijos + crédito + variables sume siempre exacto el gasto total del mes.
     let fijosReal = 0, credito = 0, variables = 0;
@@ -626,18 +662,6 @@ function FinancialHealthPanel({ data, currency, setDailyEstimate }) {
       if (FIXED_CAT_KEYS.includes(t.categoryKey)) fijosReal += t.amount;
       else if (LOAN_CAT_KEYS.includes(t.categoryKey) || t.paymentMethod === "credito") credito += t.amount;
       else variables += t.amount;
-    });
-    // Préstamos con vencimiento fijo (ej. UBS) que caen este mes calendario:
-    // si esa cuota puntual todavía no se cargó como gasto real, se suma acá
-    // como proyectado — así octubre ya "ve" la cuota UBS aunque no se haya
-    // tocado el botón todavía.
-    (SCHEDULED_LOANS[currency] || []).forEach((loan) => {
-      const inst = loan.installments.find((ins) => ins.key === `cuota-${mk}`);
-      if (!inst) return;
-      const yaCargada = data.transactions.some(
-        (t) => t.currency === currency && t.categoryKey === loan.catKey && t.subcategory === loan.subLabel && t.detail === inst.label
-      );
-      if (!yaCargada) credito += inst.fixedAmount;
     });
     const gastoTotal = monthTx.reduce((s, t) => s + t.amount, 0);
     const ingreso = data.income[`${mk}:${currency}`]?.amount || 0;
@@ -1513,7 +1537,10 @@ function ProximosMesesTab({ data, currency, setCurrency, addIncomeMovement, dele
   const upcomingMonths = [1, 2].map((offset) => {
     const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
     const mk = monthKey(d);
-    const monthTx = data.transactions.filter((t) => t.currency === currency && t.chargeMonth === mk);
+    const monthTx = [
+      ...data.transactions.filter((t) => t.currency === currency && t.chargeMonth === mk),
+      ...getProjectedLoanTx(mk, currency, data),
+    ];
     const ingresoMes = data.income[`${mk}:${currency}`]?.amount || 0;
     return { mk, monthTx, ingresoMes };
   });
