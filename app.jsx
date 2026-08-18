@@ -1781,6 +1781,15 @@ function AhorroTab({ data, addSavingsMovement, deleteSavingsMovement }) {
   });
   const purposeRows = Object.entries(byPurpose).sort((a, b) => b[1] - a[1]);
 
+  // Desglose: dónde está guardado cada ahorro.
+  const byLocation = {};
+  data.savings.forEach((m) => {
+    const key = m.location || "Sin ubicación especificada";
+    byLocation[key] = (byLocation[key] || 0) + m.amount;
+  });
+  const locationRows = Object.entries(byLocation).sort((a, b) => b[1] - a[1]);
+  const [showLocations, setShowLocations] = useState(false);
+
   function purposeValue() {
     if (purposeMode === "reservado") return customPurpose.trim() || "Reservado";
     return null;
@@ -1816,9 +1825,27 @@ function AhorroTab({ data, addSavingsMovement, deleteSavingsMovement }) {
       )}
 
       <div className="bg-emerald-50 rounded-2xl px-6 py-5 text-center w-full">
-        <img src="icon-ahorro.png" alt="" className="w-24 h-24 object-contain mx-auto mb-2" />
+        <button onClick={() => setShowLocations((v) => !v)} className="mx-auto mb-2 block active:scale-95 transition-transform">
+          <img src="icon-ahorro.png" alt="" className="w-24 h-24 object-contain mx-auto" />
+          <span className="text-[10px] text-emerald-600 underline">Ver dónde está guardado</span>
+        </button>
         <div className="text-sm text-emerald-700 font-medium">Disponible</div>
         <div className="text-4xl font-bold text-emerald-800 mt-1">{fmt(disponible)}</div>
+        {showLocations && (
+          <div className="mt-3 pt-3 border-t border-emerald-100 flex flex-col gap-1 text-left">
+            <div className="text-xs text-emerald-600 font-semibold mb-0.5">📍 Dónde está guardado</div>
+            {locationRows.length === 0 ? (
+              <p className="text-xs text-emerald-500">Todavía no cargaste ninguna ubicación.</p>
+            ) : (
+              locationRows.map(([label, val]) => (
+                <div key={label} className="flex items-center justify-between text-sm text-emerald-700">
+                  <span className="truncate pr-2">{label}</span>
+                  <span className="font-semibold whitespace-nowrap">{fmt(val)}</span>
+                </div>
+              ))
+            )}
+          </div>
+        )}
         {purposeRows.length > 0 && (
           <div className="mt-3 pt-3 border-t border-emerald-100 flex flex-col gap-1">
             {purposeRows.map(([label, val]) => (
