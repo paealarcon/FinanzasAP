@@ -1757,6 +1757,7 @@ function HistorialTab({ data, currency, setCurrency, deleteTransaction }) {
 function AhorroTab({ data, addSavingsMovement, deleteSavingsMovement }) {
   const [amount, setAmount] = useState("0");
   const [concept, setConcept] = useState("");
+  const [location, setLocation] = useState("");
   const [purposeMode, setPurposeMode] = useState("disponible"); // disponible | reservado
   const [customPurpose, setCustomPurpose] = useState("");
   const [saving, setSaving] = useState(false);
@@ -1769,13 +1770,14 @@ function AhorroTab({ data, addSavingsMovement, deleteSavingsMovement }) {
     return () => clearTimeout(t);
   }, [toast]);
 
+  const disponible = data.savings.filter((m) => !m.purpose).reduce((s, m) => s + m.amount, 0);
   const total = data.savings.reduce((s, m) => s + m.amount, 0);
 
-  // Desglose: cuánto está reservado para qué, dentro del acumulado.
+  // Desglose: cuánto está reservado para qué (sin contar lo disponible).
   const byPurpose = {};
   data.savings.forEach((m) => {
-    const key = m.purpose || "Disponible";
-    byPurpose[key] = (byPurpose[key] || 0) + m.amount;
+    if (!m.purpose) return;
+    byPurpose[m.purpose] = (byPurpose[m.purpose] || 0) + m.amount;
   });
   const purposeRows = Object.entries(byPurpose).sort((a, b) => b[1] - a[1]);
 
@@ -1793,12 +1795,14 @@ function AhorroTab({ data, addSavingsMovement, deleteSavingsMovement }) {
       ts: new Date().toISOString(),
       amount: n,
       concept: concept.trim() || null,
+      location: location.trim() || null,
       purpose: purposeValue(),
     });
     setSaving(false);
     setToast("Guardado ✅");
     setAmount("0");
     setConcept("");
+    setLocation("");
     setPurposeMode("disponible");
     setCustomPurpose("");
   }
@@ -1813,18 +1817,22 @@ function AhorroTab({ data, addSavingsMovement, deleteSavingsMovement }) {
 
       <div className="bg-emerald-50 rounded-2xl px-6 py-5 text-center w-full">
         <img src="icon-ahorro.png" alt="" className="w-24 h-24 object-contain mx-auto mb-2" />
-        <div className="text-sm text-emerald-700 font-medium">Ahorro acumulado</div>
-        <div className="text-4xl font-bold text-emerald-800 mt-1">{fmt(total)}</div>
+        <div className="text-sm text-emerald-700 font-medium">Disponible</div>
+        <div className="text-4xl font-bold text-emerald-800 mt-1">{fmt(disponible)}</div>
         {purposeRows.length > 0 && (
           <div className="mt-3 pt-3 border-t border-emerald-100 flex flex-col gap-1">
             {purposeRows.map(([label, val]) => (
               <div key={label} className="flex items-center justify-between text-sm text-emerald-700">
-                <span className="truncate pr-2">{label}</span>
+                <span className="truncate pr-2">🎯 {label}</span>
                 <span className="font-semibold whitespace-nowrap">{fmt(val)}</span>
               </div>
             ))}
           </div>
         )}
+        <div className="mt-3 pt-3 border-t border-emerald-200 flex items-center justify-between">
+          <span className="text-sm text-emerald-700 font-medium">Total acumulado</span>
+          <span className="text-lg font-bold text-emerald-800">{fmt(total)}</span>
+        </div>
       </div>
 
       <div className={`text-xl font-bold tabular-nums ${amount.startsWith("-") ? "text-rose-600" : "text-emerald-700"}`}>
@@ -1835,6 +1843,12 @@ function AhorroTab({ data, addSavingsMovement, deleteSavingsMovement }) {
         value={concept}
         onChange={(e) => setConcept(e.target.value)}
         placeholder="Concepto (opcional)"
+        className="w-full max-w-xs border-2 border-slate-200 rounded-xl px-4 py-3 text-base focus:outline-none focus:border-slate-400"
+      />
+      <input
+        value={location}
+        onChange={(e) => setLocation(e.target.value)}
+        placeholder="¿Dónde está guardado? (ej: Banco X, efectivo)"
         className="w-full max-w-xs border-2 border-slate-200 rounded-xl px-4 py-3 text-base focus:outline-none focus:border-slate-400"
       />
 
@@ -1878,6 +1892,7 @@ function AhorroTab({ data, addSavingsMovement, deleteSavingsMovement }) {
                 <div className="text-xs text-slate-500 truncate">
                   {m.concept ? `${m.concept} · ` : ""}{d.toLocaleDateString("es-AR")}
                   {m.purpose ? ` · 🎯 ${m.purpose}` : ""}
+                  {m.location ? ` · 📍 ${m.location}` : ""}
                 </div>
               </div>
               <div className={`text-sm font-bold whitespace-nowrap ${m.amount >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
