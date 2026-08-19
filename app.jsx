@@ -7,7 +7,7 @@ const { useState, useEffect, useRef, useCallback } = React;
 /* ------------------------------------------------------------------ */
 const API_URL = "https://script.google.com/macros/s/AKfycbxp-EcvFamQTvDjcjDjyvwmRMa2qRDsutSdJuwIKkQRGEy6lPA4_i0OiD6D8EMwNsbF1g/exec";
 
-function jsonp(url, timeoutMs = 12000) {
+function jsonp(url, timeoutMs = 25000) {
   return new Promise((resolve, reject) => {
     const cbName = "cb_" + Date.now() + "_" + Math.random().toString(36).slice(2);
     const script = document.createElement("script");
