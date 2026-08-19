@@ -2569,9 +2569,7 @@ function App() {
         <div className="w-full flex items-center justify-between">
           <div className="flex items-center gap-3">
             {saveError && <span className="text-[10px] text-amber-300">⚠ sin conexión al Sheet</span>}
-            {tab !== "entry" && (
-              <button onClick={refresh} className="text-xs text-slate-300 active:text-white">↻</button>
-            )}
+            <button onClick={refresh} className="text-xs text-slate-300 active:text-white">↻</button>
           </div>
           <div className="flex items-baseline gap-1.5">
             <span className="font-bold text-lg">Mango</span>
