@@ -697,7 +697,7 @@ function FinancialHealthPanel({ data, currency, setDailyEstimate }) {
   } else if (ratio >= 100) {
     status = { img: "apple-touch-icon.png", text: "text-emerald-700", label: "Mango con buena salud" };
   } else if (ratio >= 75) {
-    status = { img: "apple-touch-icon.png", text: "text-amber-700", label: "Ojo con el mango" };
+    status = { img: "apple-touch-icon.png", text: "text-amber-700", label: "Ojo con el mango…" };
   } else {
     status = { img: "apple-touch-icon.png", text: "text-rose-700", label: "Se pudrió el mango" };
   }
@@ -964,7 +964,7 @@ function EntryTab({ addTransaction, config, data, setHiddenLoans, setFxRate, set
           <div className="px-4 pt-4 grid grid-cols-2 gap-2">
             <button
               onClick={() => setCurrency("CHF")}
-              className={`rounded-xl py-2.5 text-sm font-semibold ${
+              className={`rounded-xl py-5 text-sm font-semibold ${
                 currency === "CHF" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500"
               }`}
             >
@@ -972,7 +972,7 @@ function EntryTab({ addTransaction, config, data, setHiddenLoans, setFxRate, set
             </button>
             <button
               onClick={() => setCurrency("ARS")}
-              className={`rounded-xl py-2.5 text-sm font-semibold ${
+              className={`rounded-xl py-5 text-sm font-semibold ${
                 currency === "ARS" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500"
               }`}
             >
@@ -986,11 +986,11 @@ function EntryTab({ addTransaction, config, data, setHiddenLoans, setFxRate, set
                   key={c.key}
                   onClick={() => pickCategory(c)}
                   style={{ color: c.dark }}
-                  className="rounded-3xl px-2 pt-2 pb-2 h-36 flex flex-col items-center active:scale-95 transition-transform overflow-hidden"
+                  className="rounded-3xl p-0.5 h-52 flex flex-col items-center active:scale-95 transition-transform overflow-hidden"
                 >
                   <div className="flex-1 w-full min-h-0 flex items-center justify-center">
                     {c.icon ? (
-                      <img src={c.icon} alt={c.label} className="max-h-full max-w-full object-contain" />
+                      <img src={c.icon} alt={c.label} className="w-full h-full object-contain" />
                     ) : (
                       <>
                         <span className="text-4xl">{c.emoji}</span>
@@ -1876,7 +1876,7 @@ function AhorroTab({ data, addSavingsMovement, deleteSavingsMovement }) {
       <input
         value={concept}
         onChange={(e) => setConcept(e.target.value)}
-        placeholder="Concepto (opcional)"
+        placeholder="Origen (opcional)"
         className="w-full max-w-xs border-2 border-slate-200 rounded-xl px-4 py-3 text-base focus:outline-none focus:border-slate-400"
       />
       <input
