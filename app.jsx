@@ -2565,7 +2565,7 @@ function App() {
   return (
     <div className="w-full h-[100dvh] bg-slate-50 flex flex-col overflow-hidden">
       <div className="bg-slate-900 text-white px-4 pb-3 flex flex-col items-center gap-1.5 pt-safe">
-        <img src="apple-touch-icon.png" alt="Mango" className="w-20 h-20 rounded-2xl" />
+        <img src="apple-touch-icon.png" alt="Mango" className="w-[100px] h-[100px] rounded-2xl" />
         <div className="w-full flex items-center justify-between">
           <div className="flex items-center gap-3">
             {saveError && <span className="text-[10px] text-amber-300">⚠ sin conexión al Sheet</span>}
